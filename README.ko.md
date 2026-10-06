@@ -14,7 +14,7 @@ NumPy로 직접 구현한 GPT(`tinygpt.py`, 손으로 유도한 forward/backward
                                       ^ 이 위치의 next-token 분포 = 도구 선택
 ```
 
-**▶ 시각 정리 페이지:** [`docs/index.html`](docs/index.html) — 코드 실행 결과의 실제 숫자로 공부 내용을 그림과 함께 따라가는 페이지.
+**▶ 시각 정리 페이지:** [https://columnback.github.io/tinygpt-guardrail-gradient-attribution/](https://columnback.github.io/tinygpt-guardrail-gradient-attribution/) (소스: [`docs/index.html`](docs/index.html)) — 코드 실행 결과의 실제 숫자로 공부 내용을 그림과 함께 따라가는 페이지.
 
 > ### Built on my base model
 > GPT 본체(모델 수식, 학습, gradient check)는 내 다른 프로젝트

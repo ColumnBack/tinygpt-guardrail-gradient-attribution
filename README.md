@@ -14,7 +14,7 @@ MCP tool selector, then use gradients to trace **which input tokens made it pick
                                       ^ next-token distribution here = the tool choice
 ```
 
-**▶ Visual notes (Korean):** [`docs/index.html`](docs/index.html) — an interactive page that walks through the study with real numbers from the code.
+**▶ Visual notes (Korean):** [https://columnback.github.io/tinygpt-guardrail-gradient-attribution/](https://columnback.github.io/tinygpt-guardrail-gradient-attribution/) (source: [`docs/index.html`](docs/index.html)) — an interactive page that walks through the study with real numbers from the code.
 
 > ### Built on my base model
 > The GPT itself (model math, training and gradient checks) is my companion project
