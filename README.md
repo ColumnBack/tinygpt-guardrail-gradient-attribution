@@ -4,7 +4,7 @@ English | [한국어](README.ko.md)
 
 > **Work in progress.** This is a personal study of gradient attribution, not a finished project.
 > Experiments, numbers and code may change as the study goes on.
-> A write-up of the math (attribution derivations) will be added once that part of the study is done.
+> A write-up of the math (attribution derivations) will be added once the documentation is finished.
 
 A study project: train a from-scratch NumPy GPT (`tinygpt.py`, hand-derived forward/backward) as an
 MCP tool selector, then use gradients to trace **which input tokens made it pick that tool**.
