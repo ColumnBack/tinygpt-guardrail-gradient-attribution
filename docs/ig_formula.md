@@ -10,9 +10,10 @@ $$
 
 ```python
 Xp = X.copy(); Xp[1:k] = 0.0                     # X' (기준점)
-for a in (np.arange(steps) + 0.5) / steps:       # α를 구간 가운데 점으로 샘플링
-    _, ga = score_and_grad(model, Xp + a * (X - Xp), ...)   # ∂S(t)/∂t at t = X' + α(X − X')
-    acc += ga
+for alpha in (np.arange(steps) + 0.5) / steps:   # α를 구간 가운데 점으로 샘플링
+    t = Xp + alpha * (X - Xp)                    # 경로 위의 점 t = X' + α(X − X')
+    _, g_t = score_and_grad(model, t, ...)       # ∂S(t)/∂t
+    acc += g_t
 ig = ((X - Xp) * (acc / steps)).sum(1)           # (X − X') × 평균 기울기
 ```
 

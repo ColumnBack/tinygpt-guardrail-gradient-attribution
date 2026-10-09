@@ -105,9 +105,10 @@ def attribute(model, ids, tool_id, rival_id=None, steps=64):
     #   IG_j ~ (X_j - X'_j) * mean_k dS(t)/dt_j at t = X' + alpha_k (X - X'),
     #   alpha_k = (k - 1/2) / steps
     acc = np.zeros_like(X)
-    for a in (np.arange(steps) + 0.5) / steps:
-        _, ga = score_and_grad(model, Xp + a * (X - Xp), k, tool_id, rival_id)
-        acc += ga
+    for alpha in (np.arange(steps) + 0.5) / steps:
+        t = Xp + alpha * (X - Xp)                  # point on the path: t = X' + alpha (X - X')
+        _, g_t = score_and_grad(model, t, k, tool_id, rival_id)   # dS(t)/dt
+        acc += g_t
     ig = ((X - Xp) * (acc / steps)).sum(1)
 
     occ = np.zeros(len(ids))
