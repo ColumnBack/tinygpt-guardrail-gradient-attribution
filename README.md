@@ -1,25 +1,35 @@
 English | [한국어](README.ko.md)
 
-# TinyGPT Tool Selection — Gradient Attribution
+# TinyGPT Interpretability — finding the tokens behind wrong decisions
 
-> **Work in progress.** This is a personal study of gradient attribution, not a finished project.
+> **Work in progress.** This is a personal study of interpretability methods, not a finished project.
 > Experiments, numbers and code may change as the study goes on.
 > A write-up of the math (attribution derivations) will be added once the documentation is finished.
 
 A study project: train a from-scratch NumPy GPT (`tinygpt.py`, hand-derived forward/backward) as an
-MCP tool selector, then use gradients to trace **which input tokens made it pick that tool**.
+MCP tool selector, then use interpretability methods to find **which input tokens made it pick that tool —
+and, when it is wrong, which tokens caused the mistake**.
+
+| Method | Question it answers | Status |
+|---|---|---|
+| Gradient attribution (IG, grad×input, occlusion) | **Which** input tokens drove the decision? | done — `tool_attribution.py` |
+| Layer-wise hidden-state diff | **At which layer** do a correct and a wrong input diverge? | planned — `hidden_state_diff.py` |
+| Attention analysis | **Where** does the decision position look? | planned — `attention_analysis.py` |
+| Combined diagnosis | All three on the same misprediction | planned — `diagnose.py` |
+
+All methods share one model, one dataset and the same mispredicted examples, so their answers can be compared directly.
 
 ```
 <BOS> could you open the config file <CALL> filesystem.read_file <EOS>
                                       ^ next-token distribution here = the tool choice
 ```
 
-**▶ Visual notes (Korean):** [https://columnback.github.io/tinygpt-guardrail-gradient-attribution/](https://columnback.github.io/tinygpt-guardrail-gradient-attribution/) (source: [`docs/index.html`](docs/index.html)) — an interactive page that walks through the study with real numbers from the code.
+**▶ Visual notes (Korean):** [https://columnback.github.io/tinygpt-interpretability/](https://columnback.github.io/tinygpt-interpretability/) (source: [`docs/index.html`](docs/index.html)) — an interactive page that walks through the study with real numbers from the code.
 
 > ### Built on my base model
 > The GPT itself (model math, training and gradient checks) is my companion project
 > **[ColumnBack/tinygpt-numpy](https://github.com/ColumnBack/tinygpt-numpy)**.
-> This repository is a separate study that trains that model as a tool selector and adds gradient attribution;
+> This repository is a separate study that trains that model as a tool selector and adds interpretability methods;
 > it bundles a copy of `tinygpt.py` so it runs out of the box. Model math: [`GPT math.pdf`](GPT%20math.pdf).
 
 ## Files
