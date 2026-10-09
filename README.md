@@ -19,6 +19,17 @@ and, when it is wrong, which tokens caused the mistake**.
 
 All methods share one model, one dataset and the same mispredicted examples, so their answers can be compared directly.
 
+### Why this matters — the link to prompt injection
+
+In an agent that runs tools, the most dangerous mistake is when a part of the input that has nothing to do with the user's
+request changes which tool is called. Prompt injection is the best-known case. The long-sentence study here is not an attack,
+but it shows the same shape of failure: the request stays the same, yet one noun in the context (`draft`) flips the tool choice.
+
+The methods in this repository (IG, layer-wise hidden-state diff, attention analysis) are what you use when a guardrail misses
+an injection or blocks a normal request: to find **which tokens, at which layer, through which path** changed the verdict,
+and from that, what to retrain and which rules to strengthen. This is defensive, diagnostic study on a toy model;
+attack techniques are out of scope, and results on this model do not carry over directly to real LLMs.
+
 ```
 <BOS> could you open the config file <CALL> filesystem.read_file <EOS>
                                       ^ next-token distribution here = the tool choice
@@ -142,6 +153,8 @@ attribution has pointed to the next thing to fix.
 ## Guardrail (educational prompt-injection detector)
 
 `guardrail.py` trains the same TinyGPT with the same masked loss on `<BOS> text <CHECK> SAFE|INJECTION`.
+It is the small, concrete case of the [prompt-injection link](#why-this-matters--the-link-to-prompt-injection) above:
+the same attribution tools explain why it blocked or passed a request.
 SAFE requests go on to the tool selector; INJECTION is blocked. `--explain` shows IG for `S = Z[<check>, injection]`.
 
 ```bash

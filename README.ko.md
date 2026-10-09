@@ -18,6 +18,17 @@ NumPy로 직접 구현한 GPT(`tinygpt.py`, 손으로 유도한 forward/backward
 
 모든 기법이 같은 모델, 같은 데이터, 같은 오판 사례를 쓰므로 결과를 직접 비교할 수 있다.
 
+### 왜 중요한가 — prompt injection과의 관계
+
+도구를 실행하는 에이전트에서 가장 위험한 오판은, 사용자 요청과 상관없는 입력 일부가 도구 선택을 바꿔 버리는 경우다.
+prompt injection이 대표적이다. 이 저장소의 긴 문장 실험은 공격은 아니지만 같은 모양의 현상을 보여 준다.
+요청은 그대로인데 상황 설명 속 명사 하나(`draft`)가 도구 선택을 뒤집는다.
+
+여기서 쓰는 기법(IG, 층별 hidden state 비교, attention 분석)은 guardrail이 injection을 놓치거나 정상 요청을 막았을 때
+**어떤 토큰이, 어느 층에서, 어떤 경로로** 판정을 바꿨는지 찾는 데 쓰인다. 그 결과로 무엇을 추가 학습시키고
+어떤 규칙을 보강할지 정할 수 있다. 장난감 모델로 하는 방어·진단 공부이며, 공격 기법은 다루지 않는다.
+이 모델의 결과가 실제 LLM에 그대로 일반화되지는 않는다.
+
 ```
 <BOS> could you open the config file <CALL> filesystem.read_file <EOS>
                                       ^ 이 위치의 next-token 분포 = 도구 선택
@@ -140,6 +151,8 @@ attribution 이 다음에 고칠 곳을 알려준 것.
 ## Guardrail (교육용 prompt-injection 탐지기)
 
 `guardrail.py` — 같은 TinyGPT, 같은 masked loss 로 `<BOS> 문장 <CHECK> SAFE|INJECTION` 을 학습한다.
+위의 [prompt injection과의 관계](#왜-중요한가--prompt-injection과의-관계)를 작게, 구체적으로 보여 주는 예로,
+같은 attribution 도구로 이 탐지기가 왜 막았는지 또는 왜 통과시켰는지 설명할 수 있다.
 SAFE 면 도구 선택기로 넘기고, INJECTION 이면 차단한다. `--explain` 은 `S = Z[<check>, injection]` 에 대한 IG.
 
 ```bash
