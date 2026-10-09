@@ -25,13 +25,16 @@ stopped at the input embeddings):
     G_X_final   = G_logits E           (tied head)
     blocks N..1 -> g = dS/dX_token     (T x d)
 
-Per-token attributions / 토큰별 기여도:
-    grad.norm  ||g_i||                            sensitivity only (no sign)
-    grad*in    g_i . x_i                          1st-order Taylor vs x_i = 0
-    IG         (x_i - b_i) . mean_a g_i(b + a(x-b))   Integrated Gradients,
-               baseline b_i = 0 for request words (BOS, <CALL> kept)
-               completeness:  sum_i IG_i = s(x) - s(b)   (checked below)
-    occlusion  s(x) - s(x with x_i = 0)            exact, one token at a time
+Per-token attributions / 토큰별 기여도
+(X = X_token, X' = baseline, g(t) = dS(t)/dt; same notation as docs/ig_formula.md):
+    grad.norm  ||g_i(X)||                         sensitivity only (no sign)
+    grad*in    g_i(X) . X_i                       1st-order Taylor vs X_i = 0
+    IG         IG_j = (X_j - X'_j) int_0^1 dS(t)/dt_j |_{t = X' + alpha (X - X')} d alpha
+               Integrated Gradients, midpoint Riemann sum over alpha;
+               per token i: sum of IG_j over its d embedding dims.
+               baseline X'_i = 0 for request words (BOS, <CALL> kept)
+               completeness:  sum_i IG_i = S(X) - S(X')   (checked below)
+    occlusion  S(X) - S(X with X_i = 0)           exact, one token at a time
 
 Usage:
     python tool_attribution.py --text "could you open the config file"
@@ -91,14 +94,16 @@ def attribute(model, ids, tool_id, rival_id=None, steps=64):
     k = len(ids) - 1                       # <CALL> is the last input token
     X = model.p["E"][ids].copy()
 
-    # baseline: zero embedding for request words, keep <BOS> and <CALL>
+    # baseline X' (= B): zero embedding for request words, keep <BOS> and <CALL>
     B = X.copy()
     B[1:k] = 0.0
 
     s, g = score_and_grad(model, X, k, tool_id, rival_id)
     s_base, _ = score_and_grad(model, B, k, tool_id, rival_id)
 
-    # Integrated Gradients, midpoint Riemann sum
+    # Integrated Gradients, midpoint Riemann sum:
+    #   IG_j ~ (X_j - X'_j) * mean_k dS(t)/dt_j at t = X' + alpha_k (X - X'),
+    #   alpha_k = (k - 1/2) / steps
     acc = np.zeros_like(X)
     for a in (np.arange(steps) + 0.5) / steps:
         _, ga = score_and_grad(model, B + a * (X - B), k, tool_id, rival_id)
