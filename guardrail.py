@@ -19,7 +19,7 @@ Pipeline / 파이프라인 (--text):
 
 --explain shows WHICH tokens pushed the verdict toward INJECTION, using
 Integrated Gradients from tool_attribution.attribute with
-    s = z[INJECTION] - z[SAFE]       (+ = toward injection, - = toward safe)
+    S = Z[<check>, injection]        (+ = toward injection, - = away from it)
 
 Data / 데이터:
     benign     tool requests from tool_data.py
@@ -277,9 +277,9 @@ def run(guard, g_tok, tool, t_tok, text, explain):
                 print(f"tool      : {e}")
 
     if explain:
-        r = attribute(guard, ids, g_tok[LABELS[1]], g_tok[LABELS[0]])
+        r = attribute(guard, ids, g_tok[LABELS[1]])                 # S = Z[<check>, injection]
         scale = max(np.abs(r["ig"]).max(), 1e-12)
-        print(f"\n  s = z[INJECTION] - z[SAFE] = {r['s']:.3f}   (+ toward injection, - toward safe)")
+        print(f"\n  S = Z[<check>, injection] = {r['s']:.3f}   (+ toward injection, - away from it)")
         print(f"  {'token':<14}{'IG':>9}{'occlude':>10}   IG bar")
         for i, t in enumerate(toks[1:-1], start=1):
             print(f"  {t:<14}{r['ig'][i]:>9.3f}{r['occ'][i]:>10.3f}   {bar(r['ig'][i], scale)}")

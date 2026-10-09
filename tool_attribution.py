@@ -13,17 +13,22 @@ Setup / 설정
     X_token = E[u]          (T x d)       token embeddings (input to attribute)
     X^(0)   = X_token + P                 positional part is NOT attributed
 
-Score s(X_token) at the <CALL> row, two choices (--score):
-    logp   : s = log softmax(z_k)[tool]                      "why this tool"
-    margin : s = z_k[tool] - z_k[rival]                      "why A rather than B"
-             (softmax normaliser cancels -> no saturation)
+Score S(X_token), read at the <CALL> row k (--score):
+    logit  : S = Z[k, y]                  (default) the logit of the output token y
+                                          = the selected tool. This is the basic form
+                                          S = Z_{t,y} from the study (t there = position,
+                                          written k here because t is the IG path point).
+    -- optional variants, not needed for IG itself --
+    margin : S = Z[k, tool] - Z[k, rival]          "why A rather than B"
+    logp   : S = log softmax(Z[k])[tool]           saturates when P ~ 1
 
 Backward (TinyGPT's own chain, run for a score instead of a loss and
 stopped at the input embeddings):
-    G_logits[k] = onehot(tool) - softmax(z_k)        (logp)
-                = onehot(tool) - onehot(rival)       (margin)
-    G_X_final   = G_logits E           (tied head)
-    blocks N..1 -> g = dS/dX_token     (T x d)
+    dS/dZ[k]  = onehot(y)                          (logit)
+              = onehot(tool) - onehot(rival)       (margin)
+              = onehot(tool) - softmax(Z[k])       (logp)
+    dS/dH     = dS/dZ E            (tied head: Z = H E^T, H = last hidden state)
+    blocks N..1 -> dS/dX_token     (T x d)
 
 Per-token attributions / 토큰별 기여도
 (X = X_token, X' = baseline, g(t) = dS(t)/dt; same notation as docs/ig_formula.md):
@@ -39,6 +44,7 @@ Per-token attributions / 토큰별 기여도
 Usage:
     python tool_attribution.py --text "could you open the config file"
     python tool_attribution.py --text "show the folder" --score margin
+    python tool_attribution.py --text "show the folder" --score logp    # saturation
     python tool_attribution.py --text "save my changes" --vs filesystem.write_file
     python tool_attribution.py --summary      # prefix/verb/object share on test set
     python tool_attribution.py --check        # finite-difference check of dS/dX
@@ -66,30 +72,33 @@ except Exception:
 # Score and its gradient w.r.t. the token embeddings
 # ====================================================================
 
-def score_and_grad(model, X_token, k, tool_id, rival_id=None):
-    """Return (s, dS/dX_token).  rival_id=None -> logp, else margin."""
-    logits, _, caches = model.forward_embedded(X_token)
+def score_and_grad(model, X_token, k, tool_id, score="logit", rival_id=None):
+    """Return (S, dS/dX_token).  score: 'logit' (S = Z[k, y]), 'margin' or 'logp'."""
+    logits, _, caches = model.forward_embedded(X_token)   # Z = logits
     z = logits[k]
 
-    G = np.zeros_like(logits)
-    if rival_id is None:
+    G = np.zeros_like(logits)                             # G = dS/dZ
+    if score == "logit":
+        s = float(z[tool_id])
+        G[k, tool_id] = 1.0
+    elif score == "margin":
+        s = float(z[tool_id] - z[rival_id])
+        G[k, tool_id] += 1.0
+        G[k, rival_id] -= 1.0
+    else:  # logp
         p = np.exp(z - z.max())
         p /= p.sum()
         s = float(np.log(p[tool_id] + 1e-300))
         G[k] = -p
         G[k, tool_id] += 1.0
-    else:
-        s = float(z[tool_id] - z[rival_id])
-        G[k, tool_id] += 1.0
-        G[k, rival_id] -= 1.0
 
-    GX = G @ model.p["E"]
+    GX = G @ model.p["E"]                                 # dS/dH
     for n in reversed(range(model.N)):
         GX, _ = model.block_backward(GX, caches[n], n)
     return s, GX
 
 
-def attribute(model, ids, tool_id, rival_id=None, steps=64):
+def attribute(model, ids, tool_id, score="logit", rival_id=None, steps=64):
     ids = np.asarray(ids, dtype=np.int64)
     k = len(ids) - 1                       # <CALL> is the last input token
     X = model.p["E"][ids].copy()
@@ -98,8 +107,8 @@ def attribute(model, ids, tool_id, rival_id=None, steps=64):
     Xp = X.copy()
     Xp[1:k] = 0.0
 
-    s, g = score_and_grad(model, X, k, tool_id, rival_id)
-    s_base, _ = score_and_grad(model, Xp, k, tool_id, rival_id)
+    s, g = score_and_grad(model, X, k, tool_id, score, rival_id)
+    s_base, _ = score_and_grad(model, Xp, k, tool_id, score, rival_id)
 
     # Integrated Gradients, midpoint Riemann sum:
     #   IG_j ~ (X_j - X'_j) * mean_k dS(t)/dt_j at t = X' + alpha_k (X - X'),
@@ -107,7 +116,7 @@ def attribute(model, ids, tool_id, rival_id=None, steps=64):
     acc = np.zeros_like(X)
     for alpha in (np.arange(steps) + 0.5) / steps:
         t = Xp + alpha * (X - Xp)                  # point on the path: t = X' + alpha (X - X')
-        _, g_t = score_and_grad(model, t, k, tool_id, rival_id)   # dS(t)/dt
+        _, g_t = score_and_grad(model, t, k, tool_id, score, rival_id)   # dS(t)/dt
         acc += g_t
     ig = ((X - Xp) * (acc / steps)).sum(1)
 
@@ -115,7 +124,7 @@ def attribute(model, ids, tool_id, rival_id=None, steps=64):
     for i in range(1, k):
         Xo = X.copy()
         Xo[i] = 0.0
-        occ[i] = s - score_and_grad(model, Xo, k, tool_id, rival_id)[0]
+        occ[i] = s - score_and_grad(model, Xo, k, tool_id, score, rival_id)[0]
 
     return dict(
         s=s, s_base=s_base,
@@ -155,7 +164,7 @@ def bar(v, scale, width=18):
 # One request -> table
 # ====================================================================
 
-def explain(model, token_to_id, text, score="logp", vs=None, steps=64):
+def explain(model, token_to_id, text, score="logit", vs=None, steps=64):
     ids, toks = encode_request(token_to_id, text)
     p = tool_distribution(model, ids, token_to_id)
     order = np.argsort(-p)
@@ -164,17 +173,20 @@ def explain(model, token_to_id, text, score="logp", vs=None, steps=64):
 
     rival_id = None
     if vs is not None or score == "margin":
+        score = "margin"
         rival = vs if vs is not None else TOOL_NAMES[order[1]]
         rival_id = token_to_id[rival]
 
-    r = attribute(model, ids, tool_id, rival_id, steps)
+    r = attribute(model, ids, tool_id, score, rival_id, steps)
 
     print(f"\nrequest  : {text}")
     print("selected : " + "  ".join(f"{TOOL_NAMES[j]}={p[j]:.3f}" for j in order[:3]))
-    if rival_id is None:
-        print(f"score    : s = log P({tool} | request) = {r['s']:.4f}")
+    if score == "logit":
+        print(f"score    : S = Z[<call>, {tool}] = {r['s']:.4f}")
+    elif score == "margin":
+        print(f"score    : S = Z[{tool}] - Z[{rival}] = {r['s']:.4f}")
     else:
-        print(f"score    : s = z[{tool}] - z[{rival}] = {r['s']:.4f}")
+        print(f"score    : S = log P({tool} | request) = {r['s']:.4f}")
 
     scale = max(np.abs(r["ig"]).max(), 1e-12)
     print(f"\n  {'token':<14}{'|grad|':>9}{'grad*in':>10}{'IG':>10}{'occlude':>10}   IG bar")
@@ -190,9 +202,9 @@ def explain(model, token_to_id, text, score="logp", vs=None, steps=64):
     gap = r["s"] - r["s_base"]
     print(f"\n  completeness: sum IG = {total:.4f}   s(x) - s(baseline) = {gap:.4f}"
           f"   (diff {abs(total - gap):.1e}; shrink with --steps)")
-    if rival_id is None and r["s"] > -1e-3:
+    if score == "logp" and r["s"] > -1e-3:
         print("  note: P is saturated (~1) -> raw gradients ~0, grad*in/|grad| look empty;"
-              " IG still works (it integrates the path). Try --score margin.")
+              " IG still works (it integrates the path). Try --score logit.")
 
 
 # ====================================================================
@@ -214,7 +226,7 @@ def split_roles(request, tool):
     return ["prefix"] * n_pre + ["verb"] * n_verb + ["object"] * (len(words) - n_pre - n_verb)
 
 
-def summary(model, token_to_id, score="margin", steps=32):
+def summary(model, token_to_id, score="logit", steps=32):
     _, test = make_split()
     share = {"prefix": [], "verb": [], "object": []}
     top_word = {}
@@ -223,7 +235,7 @@ def summary(model, token_to_id, score="margin", steps=32):
         p = tool_distribution(model, ids, token_to_id)
         order = np.argsort(-p)
         rival = token_to_id[TOOL_NAMES[order[1]]] if score == "margin" else None
-        r = attribute(model, ids, token_to_id[tool], rival, steps)
+        r = attribute(model, ids, token_to_id[tool], score, rival, steps)
         ig = np.abs(r["ig"][1:-1])
         roles = split_roles(req, tool)
         tot = ig.sum() + 1e-12
@@ -253,8 +265,8 @@ def check(model, token_to_id, text="could you open the config file", eps=1e-5):
     tid = token_to_id["filesystem.read_file"]
     rid = token_to_id["web.fetch"]
     rnd = np.random.default_rng(0)
-    for name, rival in (("logp", None), ("margin", rid)):
-        _, g = score_and_grad(model, X, k, tid, rival)
+    for name, rival in (("logit", None), ("margin", rid), ("logp", None)):
+        _, g = score_and_grad(model, X, k, tid, name, rival)
         num, ana = [], []
         for _ in range(20):
             i, j = rnd.integers(1, k), rnd.integers(X.shape[1])
@@ -262,8 +274,8 @@ def check(model, token_to_id, text="could you open the config file", eps=1e-5):
             X_plus, X_minus = X.copy(), X.copy()
             X_plus[i, j] += eps
             X_minus[i, j] -= eps
-            num.append((score_and_grad(model, X_plus, k, tid, rival)[0]
-                        - score_and_grad(model, X_minus, k, tid, rival)[0]) / (2 * eps))
+            num.append((score_and_grad(model, X_plus, k, tid, name, rival)[0]
+                        - score_and_grad(model, X_minus, k, tid, name, rival)[0]) / (2 * eps))
             ana.append(g[i, j])
         num, ana = np.array(num), np.array(ana)
         rel = np.linalg.norm(num - ana) / (np.linalg.norm(num) + np.linalg.norm(ana) + 1e-12)
@@ -273,7 +285,8 @@ def check(model, token_to_id, text="could you open the config file", eps=1e-5):
 def main():
     ap = argparse.ArgumentParser(description="Gradient attribution for tool selection")
     ap.add_argument("--text")
-    ap.add_argument("--score", choices=["logp", "margin"], default="margin")
+    ap.add_argument("--score", choices=["logit", "margin", "logp"], default="logit",
+                    help="logit: S = Z[<call>, tool] (default); margin / logp are optional variants")
     ap.add_argument("--vs", choices=TOOL_NAMES, help="rival tool for the margin score")
     ap.add_argument("--steps", type=int, default=64, help="IG integration steps")
     ap.add_argument("--summary", action="store_true")
@@ -287,7 +300,7 @@ def main():
     if args.check:
         check(model, token_to_id)
     elif args.summary:
-        summary(model, token_to_id, steps=min(args.steps, 32))
+        summary(model, token_to_id, args.score, steps=min(args.steps, 32))
     elif args.text:
         explain(model, token_to_id, args.text, args.score, args.vs, args.steps)
     else:

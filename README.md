@@ -44,7 +44,7 @@ pip install -r requirements.txt     # numpy only
 python train_tool_gpt.py            # train (held-out combination test: 60/60)
 python train_tool_gpt.py --check    # gradcheck of the masked loss
 python select_tool.py --text "could you open the config file"
-python tool_attribution.py --text "open the website html"            # default: margin score
+python tool_attribution.py --text "open the website html"            # default: S = Z[<call>, tool]
 python tool_attribution.py --text "save my changes" --vs filesystem.write_file
 python tool_attribution.py --text "show the folder" --score logp     # see saturation
 python tool_attribution.py --summary   # |IG| share of prefix / verb / object on the test set
@@ -55,7 +55,8 @@ python tool_attribution.py --check     # finite-difference check of dS/dX_token
 
 Input `u = <BOS> w_1..w_n <CALL>`, token embeddings `X_token = E[u]`, logits `z` at the `<CALL>` position.
 
-- **score**: `logp = log softmax(z)[tool]` or `margin = z[tool] − z[rival]`
+- **score** (default): `S = Z[k, y]` — the logit of the output token y (the tool) at the `<call>` position k
+  (optional variants: `margin = Z[tool] − Z[rival]`, `logp = log softmax(Z)[tool]`)
 - **grad×input**: `g_i · x_i`  (`g = ∂s/∂X_token`)
 - **Integrated Gradients (IG)**: `(x_i − b_i) · ∫₀¹ g_i(b + α(x − b)) dα`, baseline = zero embedding for request words
   (`<BOS>`, `<CALL>` kept). Completeness: `Σ IG_i = s(x) − s(b)`
@@ -64,7 +65,7 @@ Input `u = <BOS> w_1..w_n <CALL>`, token embeddings `X_token = E[u]`, logits `z`
 ## Things to observe
 
 1. **Saturation** — with `--score logp`, P≈1 so gradients are ~1e-7 and grad×input is all zeros.
-   The `margin` score, where the softmax normaliser cancels, brings them back.
+   The plain logit `S = Z[k, y]` (default) has no softmax, so it does not saturate.
 2. **grad×input vs IG** — in `open the website html`, `html` has a small local gradient but the largest IG.
    That is the difference between a first-order Taylor term and a path integral.
 3. **Completeness** — `Σ IG_i = s(x) − s(baseline)` gets tighter as `--steps` grows (grad×input has no such property).
@@ -98,8 +99,8 @@ python long_sentence_study.py --text "the draft shows an error so help me read t
    The request is untouched, so the correct tool should not change.
    → **46 of 57** requests flip from a single noun (207 flipping edits). Main culprits: `draft`→write_file, `link`→fetch, `meeting`→calendar.
 3. **Point to the cause with IG** — in `the server shows an error so help me read the log file`, changing `server` to `draft` gives `write_file` (wrong).
-   The score `s = z[wrong] − z[correct]` asks "why the wrong tool rather than the right one":
-   `draft` has IG **36.4** (most of the total 37.5); the request word `read` pushes back toward the right tool at −5.9, but not enough.
+   The score is the logit of the wrong tool it picked, `S = Z[<call>, wrong]`, so IG shows which tokens raised that wrong choice:
+   `draft` has IG **22.5** (most of the total 23.9); the request word `read` pulls it down at −3.3, but not enough.
 4. **Verify the hypothesis** — zero out only the `draft` embedding in the edited request → back to `read_file`. Cause confirmed.
 5. **Root cause in the data** — in training, `draft` appeared with write_file 17 times and with other tools 2 times.
    (`draft` is also in a write_file request object, `the draft to a file`) → the model learned "draft = write" regardless of position or role.
@@ -116,15 +117,15 @@ The model needs data that teaches "this word is a cue only in the **request slot
 attribution has pointed to the next thing to fix.
 
 ### Reading notes
-- `|grad|` and `grad*in` are single-point gradients, so in saturated regions they drop to 0 or even get the sign wrong (`read`: grad*in −2.4 vs IG +3.6).
+- `|grad|` and `grad*in` are single-point gradients, so in strongly nonlinear regions they can be tiny or even get the sign wrong (`read` before the edit: grad*in −1.10 vs IG +7.02).
 - `occlude` is exact, but it removes one word at a time and misses interactions between words.
-- Check IG's reliability with the completeness error (`Σ IG = s(x) − s(baseline)`). Where gradients are large (e.g. `draft`, |grad| 19),
+- Check IG's reliability with the completeness error (`Σ IG = S(X) − S(X')`). Where gradients are large (e.g. `draft`, |grad| 7.5),
   64 steps are not enough and the error grows; at 256 steps it is about 0.01.
 
 ## Guardrail (educational prompt-injection detector)
 
 `guardrail.py` trains the same TinyGPT with the same masked loss on `<BOS> text <CHECK> SAFE|INJECTION`.
-SAFE requests go on to the tool selector; INJECTION is blocked. `--explain` shows IG for `s = z[INJECTION] − z[SAFE]`.
+SAFE requests go on to the tool selector; INJECTION is blocked. `--explain` shows IG for `S = Z[<check>, injection]`.
 
 ```bash
 python guardrail.py --retrain      # ~30 s → guardrail_model.npz

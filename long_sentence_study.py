@@ -24,8 +24,8 @@ Debugging workflow / 디버깅 절차:
      replace each NOUN of the context by every other context noun -> which edits
      flip the tool?  (the request itself is untouched, so the gold tool
      is still the same)
-  3. attribution on a flipped example:  s = z[pred] - z[gold]
-     ("why the wrong tool rather than the right one") -> which tokens
+  3. attribution on a flipped example:  S = Z[<call>, pred]
+     (the logit of the wrong tool it picked) -> which tokens drive it
   4. verify the hypothesis: zero out the suspected token -> back to gold?
   5. root cause in the DATA: which tools did that word co-occur with in train
   6. --augment: add copies of each training request with a random context
@@ -255,7 +255,7 @@ def main():
     model, token_to_id = get_model(train, args.epochs, args.retrain, path)
 
     if args.text:
-        explain(model, token_to_id, args.text.lower(), "margin")
+        explain(model, token_to_id, args.text.lower(), steps=256)
         return
 
     # 1 ---------------------------------------------------------------
@@ -285,9 +285,9 @@ def main():
     print(f" 3. attribution on one flip  ('{old}' -> '{new}')")
     print("-" * 76)
     print(" before:")
-    explain(model, token_to_id, x["text"], "margin", steps=256)
-    print("\n after  (score = z[wrong] - z[gold]: why the wrong tool, not the right one):")
-    explain(model, token_to_id, after, "margin", vs=x["tool"], steps=256)
+    explain(model, token_to_id, x["text"], steps=256)
+    print("\n after  (S = Z[<call>, wrong tool]: which tokens drive the wrong choice):")
+    explain(model, token_to_id, after, steps=256)
 
     # 4 ---------------------------------------------------------------
     back = occlude_predict(model, token_to_id, after, pos)

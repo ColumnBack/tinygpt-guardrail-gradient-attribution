@@ -44,7 +44,7 @@ pip install -r requirements.txt     # numpy only
 python train_tool_gpt.py            # 학습 (held-out 조합 테스트 60/60)
 python train_tool_gpt.py --check    # masked loss gradcheck
 python select_tool.py --text "could you open the config file"
-python tool_attribution.py --text "open the website html"            # 기본: margin score
+python tool_attribution.py --text "open the website html"            # 기본: S = Z[<call>, tool]
 python tool_attribution.py --text "save my changes" --vs filesystem.write_file
 python tool_attribution.py --text "show the folder" --score logp     # saturation 관찰
 python tool_attribution.py --summary   # test셋에서 prefix/verb/object 별 |IG| 비중
@@ -55,7 +55,8 @@ python tool_attribution.py --check     # dS/dX_token 수치미분 검증
 
 입력 `u = <BOS> w_1..w_n <CALL>`, 토큰 임베딩 `X_token = E[u]`, `<CALL>` 위치 logit `z`.
 
-- **score**: `logp = log softmax(z)[tool]` 또는 `margin = z[tool] − z[rival]`
+- **score** (기본): `S = Z[k, y]` — `<call>` 위치 k 에서 출력 토큰 y(도구)의 logit 하나
+  (선택 옵션: `margin = Z[tool] − Z[rival]`, `logp = log softmax(Z)[tool]`)
 - **grad×input**: `g_i · x_i`  (`g = ∂s/∂X_token`)
 - **Integrated Gradients**: `(x_i − b_i) · ∫₀¹ g_i(b + α(x − b)) dα`, baseline = 요청 단어 임베딩 0
   (`<BOS>`, `<CALL>` 고정). completeness: `Σ IG_i = s(x) − s(b)`
@@ -64,7 +65,7 @@ python tool_attribution.py --check     # dS/dX_token 수치미분 검증
 ## 관찰 포인트
 
 1. **Saturation** — `--score logp` 는 P≈1 이라 gradient가 ~1e-7 → grad×input이 전부 0.
-   softmax 정규화가 상쇄되는 `margin` 을 쓰면 살아난다.
+   softmax 가 없는 logit 그대로의 `S = Z[k, y]`(기본값)는 포화되지 않는다.
 2. **grad×input vs IG** — `open the website html` 에서 `html` 은 국소 gradient는 작지만 IG는 가장 크다.
    1차 Taylor(국소)와 경로 적분의 차이.
 3. **Completeness** — `Σ IG_i = s(x) − s(baseline)` 이 `--steps` 를 늘릴수록 정확해진다 (grad×input 은 이 성질 없음).
@@ -97,8 +98,8 @@ python long_sentence_study.py --text "the draft shows an error so help me read t
 2. **한 단어 점검** — 맞힌 문장에서 상황 설명의 **명사 하나만** 다른 명사로 바꾼다. 요청은 그대로라 정답도 그대로여야 한다.
    → 57개 중 **46개**가 명사 하나로 뒤집힌다 (뒤집는 치환 207건). 주범: `draft`→write_file, `link`→fetch, `meeting`→calendar.
 3. **IG 로 원인 지목** — `the server shows an error so help me read the log file` → `server` 를 `draft` 로 바꾸면 `write_file` 로 오답.
-   점수 `s = z[오답] − z[정답]` 로 "왜 정답이 아니라 오답인가" 를 본다:
-   `draft` IG **36.4** (전체 37.5 의 대부분), 요청 단어 `read` 는 −5.9 로 정답 쪽을 밀지만 역부족.
+   점수를 모델이 고른 오답 도구의 logit `S = Z[<call>, 오답]` 으로 잡고, 어떤 단어가 그 오답을 끌어올렸는지 본다:
+   `draft` IG **22.5** (전체 23.9 의 대부분), 요청 단어 `read` 는 −3.3 으로 끌어내리지만 역부족.
 4. **가설 검증** — 수정된 문장에서 `draft` 임베딩만 0 으로 지우면 → `read_file` 로 복귀. 원인 확정.
 5. **데이터에서 근본 원인** — 학습 데이터에서 `draft` 는 write_file 과 17번, 다른 도구와 2번 같이 나왔다.
    (`draft` 는 write_file 요청의 목적어 `the draft to a file` 에도 나오는 단어) → 위치·역할과 무관하게 "draft = 쓰기" 로 배웠다.
@@ -115,15 +116,15 @@ python long_sentence_study.py --text "the draft shows an error so help me read t
 attribution 이 다음에 고칠 곳을 알려준 것.
 
 ### 읽는 법 메모
-- `|grad|`, `grad*in` 은 한 점의 기울기라 포화 구간에서 0 이 되거나 부호가 틀린다(`read` 의 grad*in −2.4 vs IG +3.6).
+- `|grad|`, `grad*in` 은 한 점의 기울기라 비선형이 강한 구간에서 아주 작아지거나 부호가 틀린다(바꾸기 전 문장에서 `read` 의 grad*in −1.10 vs IG +7.02).
 - `occlude` 는 정확하지만 한 번에 하나씩이라 단어 간 상호작용을 놓친다.
-- IG 는 completeness(`Σ IG = s(x) − s(baseline)`) 오차로 신뢰도를 확인한다. 기울기가 큰 구간(예: `draft` |grad| 19)에서는
+- IG 는 completeness(`Σ IG = S(X) − S(X')`) 오차로 신뢰도를 확인한다. 기울기가 큰 구간(예: `draft` |grad| 7.5)에서는
   64 단계로 부족해 오차가 커지고, 256 단계에서 0.01 수준이 된다.
 
 ## Guardrail (교육용 prompt-injection 탐지기)
 
 `guardrail.py` — 같은 TinyGPT, 같은 masked loss 로 `<BOS> 문장 <CHECK> SAFE|INJECTION` 을 학습한다.
-SAFE 면 도구 선택기로 넘기고, INJECTION 이면 차단한다. `--explain` 은 `s = z[INJECTION] − z[SAFE]` 에 대한 IG.
+SAFE 면 도구 선택기로 넘기고, INJECTION 이면 차단한다. `--explain` 은 `S = Z[<check>, injection]` 에 대한 IG.
 
 ```bash
 python guardrail.py --retrain      # ~30초 → guardrail_model.npz
