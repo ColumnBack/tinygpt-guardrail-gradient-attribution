@@ -12,7 +12,7 @@ NumPy로 직접 구현한 GPT(`tinygpt.py`, 손으로 유도한 forward/backward
 | 기법 | 답하는 질문 | 상태 |
 |---|---|---|
 | Gradient attribution (IG, grad×input, occlusion) | **어떤** 입력 토큰이 결정을 만들었나 | 완료 — `tool_attribution.py` |
-| 층별 hidden state 비교 | 정답·오답 입력이 **몇 번째 층에서** 갈라지나 | 예정 — `hidden_state_diff.py` |
+| 층별 hidden state 비교 | 정답·오답 입력이 **몇 번째 층에서** 갈라지나 | 완료 — `hidden_state_diff.py` ([정리](docs/hidden_state_diff.md)) |
 | Attention 분석 | 결정 위치가 **어디를 보고** 있나 | 예정 — `attention_analysis.py` |
 | 종합 진단 | 같은 오판 사례에 세 기법을 모두 적용 | 예정 — `diagnose.py` |
 
@@ -42,6 +42,7 @@ NumPy로 직접 구현한 GPT(`tinygpt.py`, 손으로 유도한 forward/backward
 | `select_tool.py` | 요청 → 도구 top-k 확률 |
 | `tool_attribution.py` | `∂s/∂X_token` 기반 attribution: \|grad\|, grad×input, Integrated Gradients(completeness 검증), occlusion |
 | `long_sentence_study.py` | 긴 문장에서 명사 하나 바꿔 틀리는 경우를 찾고, IG → 검증 → 데이터 원인 → 보강까지 |
+| `hidden_state_diff.py` | 같은 오판 사례를 층별로: 위치별 hidden state 차이, `<call>` logit lens, attention과 FFN 변화 비교 |
 | `guardrail.py` | 교육용 prompt-injection 탐지기 (같은 TinyGPT·masked loss) |
 | `tool_model.npz` | 학습된 가중치 (`train_tool_gpt.py --retrain` 으로 재생성, ~30초) |
 
@@ -99,7 +100,13 @@ could you read the log file  because  the app crashed after the update
 python long_sentence_study.py --retrain             # 기준 모델 (~1분)
 python long_sentence_study.py --augment --retrain   # 보강 후
 python long_sentence_study.py --text "the draft shows an error so help me read the log file"
+python hidden_state_diff.py               # draft 오판이 몇 번째 층에서 생기는지
+python hidden_state_diff.py --summary     # 모든 오판 사례에 대해
 ```
+
+`draft` 오판의 층별 보기([자세히](docs/hidden_state_diff.md)): `<call>` 위치에서 B는 1층을 지나도 아직 정답 도구 쪽이고(logit lens 차이 0.81),
+**2층 attention**에서 오답으로 넘어간다(−1.73). 이때 `<call>` hidden state 차이가 0.27에서 0.95로 뛴다.
+오판 207건 전체에서, 판정을 뒤집는 치환은 같은 자리의 판정이 그대로인 치환보다 `<call>` 상태를 층에 따라 7~17배 더 크게 바꾼다.
 
 ### 디버깅 절차 (스크립트가 순서대로 출력)
 

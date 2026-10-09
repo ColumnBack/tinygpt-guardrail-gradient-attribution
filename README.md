@@ -13,7 +13,7 @@ and, when it is wrong, which tokens caused the mistake**.
 | Method | Question it answers | Status |
 |---|---|---|
 | Gradient attribution (IG, grad×input, occlusion) | **Which** input tokens drove the decision? | done — `tool_attribution.py` |
-| Layer-wise hidden-state diff | **At which layer** do a correct and a wrong input diverge? | planned — `hidden_state_diff.py` |
+| Layer-wise hidden-state diff | **At which layer** do a correct and a wrong input diverge? | done — `hidden_state_diff.py` ([notes](docs/hidden_state_diff.md)) |
 | Attention analysis | **Where** does the decision position look? | planned — `attention_analysis.py` |
 | Combined diagnosis | All three on the same misprediction | planned — `diagnose.py` |
 
@@ -43,6 +43,7 @@ All methods share one model, one dataset and the same mispredicted examples, so 
 | `select_tool.py` | Request → top-k tool probabilities |
 | `tool_attribution.py` | Attribution from `∂s/∂X_token`: \|grad\|, grad×input, Integrated Gradients (with completeness check), occlusion |
 | `long_sentence_study.py` | Long requests: find one-noun edits that flip the tool, then IG → verify → root cause in data → augment |
+| `hidden_state_diff.py` | Same flips, layer by layer: per-position hidden-state diff, logit lens at `<call>`, attention vs FFN change |
 | `guardrail.py` | Educational prompt-injection detector (same TinyGPT, same masked loss) |
 | `tool_model.npz` | Trained weights (regenerate with `train_tool_gpt.py --retrain`, ~30 s) |
 
@@ -100,7 +101,13 @@ could you read the log file  because  the app crashed after the update
 python long_sentence_study.py --retrain             # baseline model (~1 min)
 python long_sentence_study.py --augment --retrain   # after the fix
 python long_sentence_study.py --text "the draft shows an error so help me read the log file"
+python hidden_state_diff.py               # where the draft flip happens, layer by layer
+python hidden_state_diff.py --summary     # the same over all flips
 ```
+
+Layer view of the `draft` flip ([details](docs/hidden_state_diff.md)): at `<call>`, B still prefers the correct tool after block 1
+(logit-lens margin 0.81) and switches at the **block-2 attention** (−1.73), where the `<call>` hidden-state diff jumps from 0.27 to 0.95.
+Over all 207 flips, flipping edits change the `<call>` state 7–17× more (depending on the layer) than non-flipping swaps of the same noun.
 
 ### Debugging workflow (printed in order by the script)
 
