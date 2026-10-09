@@ -99,6 +99,21 @@ def layer_score(names, SA, SB):
     return D, max(D, key=D.get)
 
 
+def layer_increment(names, SA, SB):
+    """New divergence added by each block (D_l is cumulative, so l* drifts to the last layer):
+        dD_l = D_l - D_{l-1},   D_0 = the same score at the embedding (block 1's input)
+    Returns ({layer: dD_l}, argmax_l dD_l)."""
+    mean_diff = lambda a, b: float(np.linalg.norm(b - a, axis=1).mean())
+    prev = mean_diff(SA[0], SB[0])                          # embed
+    dD = {}
+    for name, a, b in zip(names, SA, SB):
+        if name.endswith(".ffn"):
+            cur = mean_diff(a, b)
+            dD[name.split(".")[0]] = cur - prev
+            prev = cur
+    return dD, max(dD, key=dD.get)
+
+
 def settle_stage(margins, names):
     """First stage s >= 1 from which every later margin is < 0 (wrong tool ahead)."""
     for s in range(1, len(margins)):
@@ -158,6 +173,9 @@ def compare(model, token_to_id, text_a, text_b, gold=None):
     Dl, lstar = layer_score(names, SA, SB)
     print("    layer score D_l = (1/T) sum_i ||H_B - H_A||_2 on block outputs:  "
           + "  ".join(f"{l} {v:.2f}" for l, v in Dl.items()) + f"   -> l* = {lstar}")
+    dD, dstar = layer_increment(names, SA, SB)
+    print("    new divergence per block dD_l = D_l - D_(l-1) (D_0 = embed):        "
+          + "  ".join(f"{l} {v:+.2f}" for l, v in dD.items()) + f"   -> argmax = {dstar}")
 
     # 2 ----------------------------------------------------------------
     print(f"\n 2. logit lens at <call>:  z[{gold}] - z[{wrong}]   (> 0: correct tool ahead)")
@@ -192,7 +210,7 @@ def first_wrong_stage(model, token_to_id, ids_a, ids_b, gold, wrong):
 
 def summary(model, token_to_id, test):
     flips, n_checked, n_fragile = L.audit(model, token_to_id, test)
-    stages, lstars = Counter(), Counter()
+    stages, lstars, dstars = Counter(), Counter(), Counter()
     d_flip, d_keep = [], []
     seen = set()
     for x, pos, old, new, pred in flips:
@@ -201,6 +219,7 @@ def summary(model, token_to_id, test):
         st, names, SA, SB = first_wrong_stage(model, token_to_id, ids_a, ids_b, x["tool"], pred)
         stages[st] += 1
         lstars[layer_score(names, SA, SB)[1]] += 1
+        dstars[layer_increment(names, SA, SB)[1]] += 1
         k = len(ids_a) - 1
         d_flip.append([rel_diff(a, b)[k] for a, b in zip(SA, SB)])
         # a non-flipping noun swap at the same position, once per (sentence, position)
@@ -229,9 +248,10 @@ def summary(model, token_to_id, test):
         kv = f"{K[s]:>14.3f}" if K is not None else f"{'-':>14}"
         print(f"    {name:<10}{F[s]:>10.3f}{kv}")
     print(f"    (non-flipping: {len(d_keep)} swaps of the same noun position that kept the tool)")
-    print("\n l* = argmax_l D_l (layer where A and B differ most, averaged over positions):")
-    for l, c in sorted(lstars.items()):
-        print(f"    {l:<10} {c:>4}")
+    print("\n l* = argmax_l D_l  vs  argmax_l dD_l (block that ADDS the most divergence):")
+    print(f"    {'layer':<10}{'l* (D_l)':>10}{'argmax dD_l':>14}")
+    for l in sorted(set(lstars) | set(dstars)):
+        print(f"    {l:<10}{lstars.get(l, 0):>10}{dstars.get(l, 0):>14}")
 
 
 # ====================================================================
