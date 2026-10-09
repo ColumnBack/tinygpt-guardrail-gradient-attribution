@@ -258,11 +258,12 @@ def check(model, token_to_id, text="could you open the config file", eps=1e-5):
         num, ana = [], []
         for _ in range(20):
             i, j = rnd.integers(1, k), rnd.integers(X.shape[1])
-            Xp, Xm = X.copy(), X.copy()
-            Xp[i, j] += eps
-            Xm[i, j] -= eps
-            num.append((score_and_grad(model, Xp, k, tid, rival)[0]
-                        - score_and_grad(model, Xm, k, tid, rival)[0]) / (2 * eps))
+            # central difference: X_plus = X + eps, X_minus = X - eps (not the IG baseline Xp)
+            X_plus, X_minus = X.copy(), X.copy()
+            X_plus[i, j] += eps
+            X_minus[i, j] -= eps
+            num.append((score_and_grad(model, X_plus, k, tid, rival)[0]
+                        - score_and_grad(model, X_minus, k, tid, rival)[0]) / (2 * eps))
             ana.append(g[i, j])
         num, ana = np.array(num), np.array(ana)
         rel = np.linalg.norm(num - ana) / (np.linalg.norm(num) + np.linalg.norm(ana) + 1e-12)
