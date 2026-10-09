@@ -2,6 +2,10 @@ English | [한국어](README.ko.md)
 
 # TinyGPT Interpretability — finding the tokens behind wrong decisions
 
+> ### ▶ Start here: [visual walkthrough (English)](https://columnback.github.io/tinygpt-interpretability/en/) · [한국어](https://columnback.github.io/tinygpt-interpretability/)
+> A 7-step interactive tour from one wrong decision to its cause — which word, which layer, which path, and why —
+> with real numbers from the code. Source: [`docs/en/index.html`](docs/en/index.html), [`docs/index.html`](docs/index.html).
+
 > **Work in progress.** This is a personal study of interpretability methods, not a finished project.
 > Experiments, numbers and code may change as the study goes on.
 > Math notes: [`Interpretability math.pdf`](Interpretability%20math.pdf) (handwritten: hidden-state difference, gradient attribution, IG, attention).
@@ -36,8 +40,6 @@ attack techniques are out of scope, and results on this model do not carry over 
 <BOS> could you open the config file <CALL> filesystem.read_file <EOS>
                                       ^ next-token distribution here = the tool choice
 ```
-
-**▶ Visual notes (Korean):** [https://columnback.github.io/tinygpt-interpretability/](https://columnback.github.io/tinygpt-interpretability/) (source: [`docs/index.html`](docs/index.html)) — an interactive page that walks through the study with real numbers from the code.
 
 > ### Built on my base model
 > The GPT itself (model math, training and gradient checks) is my companion project

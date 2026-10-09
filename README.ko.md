@@ -2,6 +2,10 @@
 
 # TinyGPT Interpretability — 오판을 일으킨 토큰 찾기
 
+> ### ▶ 여기서 시작: [시각 정리 페이지 (한국어)](https://columnback.github.io/tinygpt-interpretability/) · [English](https://columnback.github.io/tinygpt-interpretability/en/)
+> 오판 하나를 원인까지 일곱 단계로 따라가는 인터랙티브 페이지 — 어떤 단어가, 몇 번째 층에서, 어떤 경로로, 왜 —
+> 코드 실행 결과의 실제 숫자로 보여 준다. 소스: [`docs/index.html`](docs/index.html), [`docs/en/index.html`](docs/en/index.html).
+
 > **공부 진행 중.** 해석 가능성(interpretability) 기법을 공부하면서 만들고 있는 저장소로, 아직 완성본이 아니다.
 > 실험·수치·코드는 공부가 진행되면서 바뀔 수 있다.
 > 수식 노트: [`Interpretability math.pdf`](Interpretability%20math.pdf) (손으로 쓴 정리: hidden state 차이, gradient attribution, IG, attention).
@@ -35,8 +39,6 @@ prompt injection이 대표적이다. 이 저장소의 긴 문장 실험은 공�
 <BOS> could you open the config file <CALL> filesystem.read_file <EOS>
                                       ^ 이 위치의 next-token 분포 = 도구 선택
 ```
-
-**▶ 시각 정리 페이지:** [https://columnback.github.io/tinygpt-interpretability/](https://columnback.github.io/tinygpt-interpretability/) (소스: [`docs/index.html`](docs/index.html)) — 코드 실행 결과의 실제 숫자로 공부 내용을 그림과 함께 따라가는 페이지.
 
 > ### Built on my base model
 > GPT 본체(모델 수식, 학습, gradient check)는 내 다른 프로젝트

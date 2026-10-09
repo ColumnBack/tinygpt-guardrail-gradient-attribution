@@ -1,10 +1,10 @@
 <!doctype html>
-<html lang="ko">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Gradient Attribution 노트</title>
-<meta name="description" content="NumPy TinyGPT 도구 선택기로 공부한 gradient attribution을 그림으로 정리한 페이지 (공부 진행 중)">
+<title>Interpretability Notes</title>
+<meta name="description" content="Visual notes on finding the tokens behind a NumPy TinyGPT tool selector's wrong decisions (work in progress)">
 <style>
 :root {
   color-scheme: light;
@@ -180,235 +180,235 @@ footer { padding: 40px 0 60px; color: var(--text-3); font-size: 14px; border-top
 <div class="wrap">
 <header class="top">
   <div class="topbar">
-    <span><span class="badge">공부 진행 중 · Work in progress</span> <a class="badge" href="en/">English</a></span>
-    <button class="theme-btn" id="themeBtn" type="button">테마 전환</button>
+    <span><span class="badge">Work in progress</span> <a class="badge" href="../">한국어</a></span>
+    <button class="theme-btn" id="themeBtn" type="button">Toggle theme</button>
   </div>
-  <h1>모델은 <em>왜</em> 그 도구를 골랐을까?</h1>
-  <p class="lede">NumPy로 직접 만든 작은 GPT를 MCP 도구 선택기로 학습시키고, 역전파(gradient)로
-    <b>어떤 단어가 그 결정을 만들었는지</b> 추적해 본 공부 노트입니다.</p>
-  <p class="meta">모든 숫자는 저장소의 코드를 실제로 실행해 얻은 값입니다 · 수식 유도 정리는 문서 작업이 완료되면 추가 예정 ·
-    <a id="repoLink" href="https://github.com/ColumnBack">GitHub 저장소</a></p>
-  <nav class="toc" aria-label="목차">
-    <a href="#s0"><b>0. 진단 과정 한눈에</b></a><a href="#s1">1. 도구 선택</a><a href="#s2">2. 역전파로 점수 구하기</a><a href="#s3">3. 네 가지 점수</a>
-    <a href="#s4">4. IG 직관</a><a href="#s5">5. 포화 함정</a><a href="#s6">6. 긴 문장 디버깅</a><a href="#s7">7. 층과 경로</a><a href="#s8">8. 정리</a>
+  <h1><em>Why</em> did the model pick that tool?</h1>
+  <p class="lede">Study notes: a small GPT written from scratch in NumPy is trained as an MCP tool selector, and
+    gradients, hidden states and attention are used to trace <b>which words made that decision</b>.</p>
+  <p class="meta">Every number comes from running the code in the repository · a typed math write-up will follow ·
+    <a id="repoLink" href="https://github.com/ColumnBack">GitHub repository</a></p>
+  <nav class="toc" aria-label="Contents">
+    <a href="#s0"><b>0. The process at a glance</b></a><a href="#s1">1. Tool selection</a><a href="#s2">2. Backprop to words</a><a href="#s3">3. Four scores</a>
+    <a href="#s4">4. IG intuition</a><a href="#s5">5. Saturation trap</a><a href="#s6">6. Long-sentence debugging</a><a href="#s7">7. Layers and paths</a><a href="#s8">8. Summary</a>
   </nav>
 </header>
 
 <!-- 0 -->
 <section id="s0">
-  <h2><span class="num">0</span>진단 과정 한눈에: 오판 하나를 끝까지 따라가기</h2>
-  <p class="sub">모델이 틀렸을 때 원인을 찾는 과정을 일곱 단계로 따라갑니다. 각 단계는 <b>질문 하나 → 기법 하나 → 답 하나</b>입니다.
-    아래 단계를 누르거나 ← → 키로 넘겨 보세요. 자세한 설명은 이어지는 1~8번 섹션에 있습니다.</p>
+  <h2><span class="num">0</span>The process at a glance: following one wrong decision to its cause</h2>
+  <p class="sub">Seven steps from a wrong decision to its cause. Each step is <b>one question → one method → one answer</b>.
+    Click a step or use the ← → keys. Sections 1–8 below explain each method in detail.</p>
   <div class="card">
-    <div class="tour-steps" id="tourSteps" role="tablist" aria-label="진단 단계"></div>
+    <div class="tour-steps" id="tourSteps" role="tablist" aria-label="Diagnosis steps"></div>
     <div class="tour-panel" id="tourPanel" aria-live="polite"></div>
     <div class="tour-nav">
-      <button type="button" id="tourPrev">← 이전</button>
+      <button type="button" id="tourPrev">← Back</button>
       <span class="tour-count" id="tourCount"></span>
-      <button type="button" class="primary" id="tourNext">다음 →</button>
+      <button type="button" class="primary" id="tourNext">Next →</button>
     </div>
   </div>
 </section>
 
 <!-- 1 -->
 <section id="s1">
-  <h2><span class="num">1</span>모델이 도구를 고르는 방식</h2>
-  <p class="sub">문장 끝에 <code>&lt;call&gt;</code> 표시를 붙이고, 그 위치에서 "다음에 올 단어"를 예측하게 합니다.
-    그 다음 단어가 곧 도구 이름입니다. 학습할 때도 이 한 자리에만 정답을 알려 줍니다(masked loss).</p>
+  <h2><span class="num">1</span>How the model picks a tool</h2>
+  <p class="sub">A <code>&lt;call&gt;</code> marker is appended to the request, and the model predicts the next word at that position.
+    That next word is the tool name. Training also puts the loss on this one position only (masked loss).</p>
   <div class="card">
     <div class="tokens" id="s1tokens"></div>
     <div id="s1probs" style="margin-top:18px"></div>
-    <p class="note" style="margin-top:12px">도구 10개(파일 읽기·쓰기·목록, 웹 검색·가져오기, 날씨, 일정, 메일, DB, git) 중 확률이 가장 높은 것을 고릅니다.
-      학습에 없던 동사·목적어 조합 60문장을 모두 맞혔습니다.</p>
+    <p class="note" style="margin-top:12px">The model picks the most likely of 10 tools (file read / write / list, web search / fetch, weather, calendar, email, DB, git).
+      It gets all 60 held-out requests with unseen verb–object combinations right.</p>
   </div>
 </section>
 
 <!-- 2 -->
 <section id="s2">
-  <h2><span class="num">2</span>역전파로 단어별 점수 구하기</h2>
-  <p class="sub">학습할 때와 <b>같은 역전파</b>를 쓰되 두 가지만 바꿉니다:
-    loss 대신 <b>점수 S = Z[&lt;call&gt;, y]</b>(출력 토큰 y = 도구의 logit 하나)를 미분하고, 파라미터가 아니라 <b>입력 단어 임베딩</b>까지 내려가서 멈춥니다.
-    순서는 <b>∂S/∂Z → ∂S/∂H → ∂S/∂X</b>입니다.</p>
+  <h2><span class="num">2</span>Backpropagating to the input words</h2>
+  <p class="sub">It is <b>the same backprop as in training</b>, with two changes:
+    we differentiate the <b>score S = Z[&lt;call&gt;, y]</b> (the logit of the output token y, the tool) instead of a loss, and stop at the
+    <b>input word embeddings</b> instead of the parameters. The order is <b>∂S/∂Z → ∂S/∂H → ∂S/∂X</b>.</p>
   <div class="card">
-    <div style="overflow-x:auto"><svg class="chart" id="flow" viewBox="0 0 860 250" role="img" aria-label="forward와 backward 흐름도" style="min-width:720px"></svg></div>
+    <div style="overflow-x:auto"><svg class="chart" id="flow" viewBox="0 0 860 250" role="img" aria-label="forward and backward flow" style="min-width:720px"></svg></div>
     <div class="legend">
-      <span><span class="sw" style="background:var(--text-3)"></span>forward: 단어 → 점수</span>
-      <span><span class="sw" style="background:var(--neg)"></span>backward: 점수 → 단어 (∂S/∂X)</span>
+      <span><span class="sw" style="background:var(--text-3)"></span>forward: words → score</span>
+      <span><span class="sw" style="background:var(--neg)"></span>backward: score → words (∂S/∂X)</span>
     </div>
     <pre><code><span class="c"># tool_attribution.py · score_and_grad</span>
-logits, _, caches = model.forward_embedded(X_token)   <span class="c"># ① forward (임베딩부터)</span>
+logits, _, caches = model.forward_embedded(X_token)   <span class="c"># ① forward (from embeddings)</span>
 G[k, y] = 1                                            <span class="c"># ② ∂S/∂Z :  S = Z[k, y]</span>
 GX = G @ E                                             <span class="c"># ③ ∂S/∂H  (Z = H·Eᵀ)</span>
-for n in reversed(range(N)):                           <span class="c"># ④ 블록을 거꾸로</span>
-    GX, _ = model.block_backward(GX, caches[n], n)     <span class="c">#    (파라미터 기울기는 버림)</span>
-return s, GX                                           <span class="c"># ⑤ ∂S/∂X : 단어마다 벡터 하나</span></code></pre>
+for n in reversed(range(N)):                           <span class="c"># ④ blocks in reverse</span>
+    GX, _ = model.block_backward(GX, caches[n], n)     <span class="c">#    (parameter grads dropped)</span>
+return s, GX                                           <span class="c"># ⑤ ∂S/∂X : one vector per word</span></code></pre>
   </div>
 </section>
 
 <!-- 3 -->
 <section id="s3">
-  <h2><span class="num">3</span>같은 기울기, 네 가지 점수</h2>
-  <p class="sub">∂S/∂X는 단어마다 64차원 벡터입니다. 이것을 단어마다 <b>숫자 하나</b>로 줄이는 방법이 여러 가지이고, 결과가 꽤 다릅니다.
-    예문 <code id="s3text"></code> → <code id="s3tool"></code>, 점수 S = Z[&lt;call&gt;, 선택 도구].</p>
+  <h2><span class="num">3</span>Same gradient, four scores</h2>
+  <p class="sub">∂S/∂X is a 64-dimensional vector per word. There are several ways to turn it into <b>one number per word</b>, and they disagree a lot.
+    Example <code id="s3text"></code> → <code id="s3tool"></code>, score S = Z[&lt;call&gt;, chosen tool].</p>
   <div class="card">
     <div class="tabs" role="tablist" id="methodTabs"></div>
     <p class="method-desc" id="methodDesc"></p>
     <div class="tokens" id="s3tokens"></div>
-    <svg class="chart" id="s3bars" role="img" aria-label="단어별 attribution 막대"></svg>
+    <svg class="chart" id="s3bars" role="img" aria-label="attribution per word"></svg>
     <div class="legend">
-      <span><span class="sw" style="background:var(--pos)"></span>선택한 도구 쪽으로 미는 단어 (+)</span>
-      <span><span class="sw" style="background:var(--neg)"></span>반대쪽으로 미는 단어 (−)</span>
+      <span><span class="sw" style="background:var(--pos)"></span>pushes toward the chosen tool (+)</span>
+      <span><span class="sw" style="background:var(--neg)"></span>pushes away from it (−)</span>
     </div>
   </div>
-  <div class="callout">눈여겨볼 곳: <code>html</code>은 grad×input이 <b id="htmlGxi"></b>로 작지만, IG는 <b id="htmlIg"></b>로 가장 큽니다.
-    한 점의 기울기(국소)만 보면 놓치는 기여를, 경로 전체를 적분하는 IG는 잡아냅니다.</div>
+  <div class="callout">Look at <code>html</code>: grad×input is only <b id="htmlGxi"></b>, yet its IG is the largest at <b id="htmlIg"></b>.
+    A single-point (local) gradient misses this contribution; IG, which integrates along the whole path, catches it.</div>
 </section>
 
 <!-- 4 -->
 <section id="s4">
-  <h2><span class="num">4</span>IG(Integrated Gradients) 직관</h2>
-  <p class="sub">단어 임베딩을 <b>0(기준점)에서 실제 값까지</b> 조금씩 키우면서(α: 0→1), 매 순간의 기울기를 모아 더합니다.
-    슬라이더를 움직여 보세요. 막대는 α까지 쌓인 IG, 아래 곡선은 그 순간의 점수입니다.</p>
+  <h2><span class="num">4</span>Integrated Gradients (IG), intuitively</h2>
+  <p class="sub">Grow the word embeddings <b>from 0 (the baseline) to their real values</b> step by step (α: 0→1) and add up the gradient at every point.
+    Move the slider: the bars are the IG accumulated up to α, the curve below is the score at that point.</p>
   <div class="card">
     <div class="slider-row">
       <label for="alpha" class="note">α</label>
-      <input type="range" id="alpha" min="0" max="48" value="48" step="1" aria-label="경로 위치 α">
+      <input type="range" id="alpha" min="0" max="48" value="48" step="1" aria-label="path position α">
       <span class="readout" id="alphaVal"></span>
     </div>
-    <svg class="chart" id="s4bars" role="img" aria-label="α까지 누적된 IG"></svg>
-    <svg class="chart" id="s4line" role="img" aria-label="경로 위 점수 S(α)" style="margin-top:8px"></svg>
+    <svg class="chart" id="s4bars" role="img" aria-label="IG accumulated up to α"></svg>
+    <svg class="chart" id="s4line" role="img" aria-label="score S(α) along the path" style="margin-top:8px"></svg>
     <p class="readout" id="completeness" style="margin-top:10px"></p>
   </div>
-  <div class="callout"><b>completeness</b>: 모든 단어의 IG를 더하면 언제나 <code>S(입력) − S(기준점)</code>과 같습니다.
-    점수 변화 전체를 단어들에게 남김없이 나눠 준다는 뜻이고, 이 값이 맞지 않으면 적분 단계가 부족한 것입니다.</div>
+  <div class="callout"><b>Completeness</b>: the IG of all words always adds up to <code>S(input) − S(baseline)</code>.
+    The whole change in the score is split among the words with nothing left over; if the two do not match, the integral needs more steps.</div>
 </section>
 
 <!-- 5 -->
 <section id="s5">
-  <h2><span class="num">5</span>포화 함정: 확률을 그대로 미분하면 0이 나온다</h2>
-  <p class="sub">모델이 확신할수록 확률이 1에 붙어 버려, 기울기가 사실상 0이 됩니다. 그러면 "아무 단어도 중요하지 않다"는 엉뚱한 결론이 나옵니다.</p>
+  <h2><span class="num">5</span>The saturation trap: differentiate the probability and you get 0</h2>
+  <p class="sub">The more confident the model, the closer the probability sticks to 1 and the gradient becomes practically 0 — which wrongly suggests that "no word matters".</p>
   <div class="grid2">
     <div class="card">
-      <h3 style="margin-top:0">점수 = log P(도구)</h3>
+      <h3 style="margin-top:0">score = log P(tool)</h3>
       <p class="note">log P = <b id="logpVal"></b> (P ≈ 1)</p>
       <div id="satLogp"></div>
     </div>
     <div class="card">
-      <h3 style="margin-top:0">점수 = Z[&lt;call&gt;, 도구] (logit)</h3>
-      <p class="note">softmax를 거치지 않은 logit이라 포화가 없습니다.</p>
+      <h3 style="margin-top:0">score = Z[&lt;call&gt;, tool] (logit)</h3>
+      <p class="note">The logit does not go through softmax, so it does not saturate.</p>
       <div id="satMargin"></div>
     </div>
   </div>
-  <p class="note" style="margin-top:10px">막대 길이는 단어별 기울기 크기 |∂S/∂x|입니다. 왼쪽은 값이 1e-6 수준이라 막대가 보이지 않습니다.</p>
+  <p class="note" style="margin-top:10px">Bar length is the gradient size |∂S/∂x| per word. On the left the values are around 1e-6, so the bars are invisible.</p>
 </section>
 
 <!-- 6 -->
 <section id="s6">
-  <h2><span class="num">6</span>긴 문장 디버깅: 단어 하나 바꿨더니 틀린다</h2>
-  <p class="sub">실제 요청 로그처럼 "상황 설명 + 요청" 형태의 긴 문장으로 학습했습니다. 상황 설명 30개는 모든 도구가 공유하고,
-    주제가 맞는 도구와 약 70%만 같이 나옵니다. 정확도는 괜찮아 보이는데, 정말 요청을 보고 고르고 있을까요?</p>
+  <h2><span class="num">6</span>Long-sentence debugging: change one word and it fails</h2>
+  <p class="sub">The model is trained on long "context + request" sentences, like real request logs. The 30 context clauses are shared by all tools
+    and co-occur with their topical tool only ~70% of the time. Accuracy looks fine — but is the model really reading the request?</p>
 
   <div class="tiles" id="tiles"></div>
 
   <div class="step"><div class="dot">1</div><div>
-    <h3>한 단어 점검: 상황 설명의 명사 하나만 바꿔 본다</h3>
-    <p class="note">요청 부분은 그대로라 정답도 그대로여야 합니다. 그런데 명사 하나로 판정이 뒤집히는 경우가 대부분이었습니다.
-      아래는 판정을 가장 많이 뒤집은 단어입니다(뒤집힌 횟수).</p>
-    <div class="card"><svg class="chart" id="flipChart" role="img" aria-label="판정을 뒤집은 단어별 횟수"></svg>
-      <div class="legend"><span><span class="sw" style="background:var(--s1)"></span>처음 모델</span>
-        <span><span class="sw" style="background:var(--s2)"></span>데이터 보강 후</span></div></div>
+    <h3>One-word audit: change a single noun in the context</h3>
+    <p class="note">The request is untouched, so the right tool should not change. Yet most requests flip from a single noun.
+      Below: the words that flip the decision most often (number of flips).</p>
+    <div class="card"><svg class="chart" id="flipChart" role="img" aria-label="flips per word"></svg>
+      <div class="legend"><span><span class="sw" style="background:var(--s1)"></span>baseline model</span>
+        <span><span class="sw" style="background:var(--s2)"></span>after augmentation</span></div></div>
   </div></div>
 
   <div class="step"><div class="dot">2</div><div>
-    <h3>IG로 원인 지목</h3>
-    <p class="note"><code>server</code>를 <code>draft</code>로 바꾸자 파일 읽기가 파일 쓰기로 바뀌었습니다.
-      바뀐 문장에서는 모델이 고른 <b>오답 도구의 logit</b> <code>Z[&lt;call&gt;, 오답]</code>을 점수로 잡고, 어떤 단어가 그 오답을 끌어올렸는지 봅니다.</p>
+    <h3>Point to the cause with IG</h3>
+    <p class="note">Changing <code>server</code> to <code>draft</code> turns "read file" into "write file".
+      For the edited sentence the score is <b>the logit of the wrong tool</b> it picked, <code>Z[&lt;call&gt;, wrong]</code>, so IG shows which words raised that wrong choice.</p>
     <div class="card">
-      <p class="note" style="margin-top:0"><b>바꾸기 전</b> → <span id="beforeTool"></span></p>
+      <p class="note" style="margin-top:0"><b>before the edit</b> → <span id="beforeTool"></span></p>
       <div class="tokens" id="beforeTokens"></div>
-      <p class="note"><b>바꾼 후</b> → <span id="afterTool"></span></p>
+      <p class="note"><b>after the edit</b> → <span id="afterTool"></span></p>
       <div class="tokens" id="afterTokens"></div>
       <div class="legend">
-        <span><span class="sw" style="background:var(--pos)"></span>설명 대상 도구 쪽 (+)</span>
-        <span><span class="sw" style="background:var(--neg)"></span>반대쪽 (−)</span>
-        <span>칸 아래 숫자 = IG</span>
+        <span><span class="sw" style="background:var(--pos)"></span>toward the explained tool (+)</span>
+        <span><span class="sw" style="background:var(--neg)"></span>away from it (−)</span>
+        <span>number under each word = IG</span>
       </div>
     </div>
   </div></div>
 
   <div class="step"><div class="dot">3</div><div>
-    <h3>가설 검증: 그 단어만 지워 본다</h3>
-    <p class="note">바꾼 문장에서 <code>draft</code> 임베딩만 0으로 지우면 → <b id="verifyTool"></b>.
-      정답으로 돌아오므로 원인이 확정됩니다. (attribution은 가설을 주고, 검증은 따로 합니다.)</p>
+    <h3>Verify the hypothesis: remove just that word</h3>
+    <p class="note">Zero out only the <code>draft</code> embedding in the edited sentence → <b id="verifyTool"></b>.
+      It goes back to the right tool, which confirms the cause. (Attribution gives a hypothesis; verification is a separate step.)</p>
   </div></div>
 
   <div class="step"><div class="dot">4</div><div>
-    <h3>데이터에서 근본 원인 찾기</h3>
-    <p class="note">학습 데이터에서 <code>draft</code>가 어떤 도구와 같이 나왔는지 셌습니다.
-      <code>draft</code>는 파일 쓰기 요청의 목적어("the draft to a file")에도 들어 있어서, 모델은 위치와 상관없이 "draft = 쓰기"로 배웠습니다.</p>
-    <div class="card"><svg class="chart" id="coocChart" role="img" aria-label="draft와 함께 나온 도구 횟수"></svg></div>
+    <h3>Find the root cause in the data</h3>
+    <p class="note">Count which tools <code>draft</code> appeared with in training.
+      <code>draft</code> is also an object of write-file requests ("the draft to a file"), so the model learned "draft = write" regardless of where the word sits.</p>
+    <div class="card"><svg class="chart" id="coocChart" role="img" aria-label="tools seen with draft"></svg></div>
   </div></div>
 
   <div class="step"><div class="dot">5</div><div>
-    <h3>데이터 보강 후 다시 점검</h3>
-    <p class="note">같은 요청에 무작위 상황 설명을 붙인 사본을 추가해 다시 학습했습니다(counterfactual augmentation).
-      같은 문장의 IG를 보면 <code>draft</code>의 기여가 거의 0으로 줄고, 요청 단어가 결정을 이끕니다.</p>
+    <h3>Fix the data and audit again</h3>
+    <p class="note">Copies of each request with a random context were added and the model retrained (counterfactual augmentation).
+      In the same sentence, the IG of <code>draft</code> drops to about 0 and the request words drive the decision.</p>
     <div class="card">
-      <p class="note" style="margin-top:0"><b>보강 후, 바꾼 문장</b> → <span id="augTool"></span></p>
+      <p class="note" style="margin-top:0"><b>after augmentation, edited sentence</b> → <span id="augTool"></span></p>
       <div class="tokens" id="augTokens"></div>
     </div>
     <div class="card tablewrap" style="margin-top:16px">
       <table>
-        <thead><tr><th></th><th class="num">정확도</th><th class="num">명사 하나로 뒤집히는 문장</th><th class="num">뒤집는 치환 수</th></tr></thead>
+        <thead><tr><th></th><th class="num">accuracy</th><th class="num">requests flipped by one noun</th><th class="num">flipping edits</th></tr></thead>
         <tbody id="cmpBody"></tbody>
       </table>
     </div>
-    <div class="callout">좋아졌지만 끝나지 않았습니다. 이제 남은 주범은 <code>folder</code>, <code>weekend</code>입니다.
-      이 단어들은 다른 도구 요청의 진짜 목적어라서, 상황 설명을 섞는 것만으로는 풀리지 않습니다.
-      <b>attribution이 다음에 고칠 곳을 알려 준 것</b>입니다.</div>
+    <div class="callout">Better, but not done. The remaining culprits are <code>folder</code> and <code>weekend</code>.
+      They are genuine objects of other tools' requests, so shuffling contexts alone cannot fix them.
+      <b>Attribution has pointed to the next thing to fix.</b></div>
   </div></div>
 </section>
 
 <!-- 7 -->
 <section id="s7">
-  <h2><span class="num">7</span>층과 경로로 따라가기: hidden state · attention · occlusion</h2>
-  <p class="sub">IG는 "어떤 단어"를 알려 줍니다. 같은 <code>draft</code> 오판을 세 가지 다른 기법으로 다시 보면,
-    그 단어가 <b>몇 번째 층에서, 어떤 경로로</b> 결정을 뒤집었는지까지 보입니다.
-    A = <code>the server …</code> (정답 <span id="l_gold"></span>), B = <code>the draft …</code> (오답 <span id="l_wrong"></span>).</p>
+  <h2><span class="num">7</span>Following layers and paths: hidden state · attention · occlusion</h2>
+  <p class="sub">IG tells us <i>which word</i>. Looking at the same <code>draft</code> flip with three other methods shows
+    <b>at which layer and through which path</b> that word flipped the decision.
+    A = <code>the server …</code> (correct: <span id="l_gold"></span>), B = <code>the draft …</code> (wrong: <span id="l_wrong"></span>).</p>
 
   <div class="step"><div class="dot">1</div><div>
-    <h3>층별 hidden state 차이: 차이는 어디서 시작해 어디로 퍼지나</h3>
-    <p class="note">칸의 진하기 = ‖h<sub>B</sub> − h<sub>A</sub>‖ / ‖h<sub>A</sub>‖. embed 단계에서는 바뀐 단어 칸만 차이가 있고,
-      층을 지날수록 attention이 그 차이를 다른 위치로 옮깁니다. 테두리 칸이 결정 위치 <code>&lt;call&gt;</code>입니다.</p>
+    <h3>Layer-wise hidden-state diff: where the difference starts and where it spreads</h3>
+    <p class="note">Cell shade = ‖h<sub>B</sub> − h<sub>A</sub>‖ / ‖h<sub>A</sub>‖. At the embedding only the edited word differs;
+      layer by layer, attention carries that difference to other positions. The outlined column is the decision position <code>&lt;call&gt;</code>.</p>
     <div class="card tablewrap"><div class="heat" id="heat"></div></div>
   </div></div>
 
   <div class="step"><div class="dot">2</div><div>
-    <h3>logit lens: 몇 번째 층부터 오답 쪽인가</h3>
-    <p class="note">각 단계의 <code>&lt;call&gt;</code> hidden state를 출력층에 바로 통과시킨 값입니다.
-      0보다 크면 정답 도구가 앞섭니다. 중간층은 출력용으로 학습되지 않았으므로 근사적인 보기입니다.</p>
-    <div class="card"><svg class="chart" id="lensChart" role="img" aria-label="단계별 logit lens"></svg>
-      <div class="legend"><span><span class="sw" style="background:var(--s1)"></span>A (정답 문장)</span>
-        <span><span class="sw" style="background:var(--s2)"></span>B (오답 문장)</span>
-        <span>값 = z[정답 도구] − z[오답 도구]</span></div></div>
-    <p class="note"><b>B는 1층을 지나도 정답 쪽이고, 2층 attention에서 오답으로 넘어갑니다.</b></p>
+    <h3>Logit lens: from which layer is it on the wrong tool?</h3>
+    <p class="note">The <code>&lt;call&gt;</code> hidden state of each stage is read straight through the output layer.
+      Above 0 the correct tool is ahead. Intermediate layers were not trained to be read out, so this is an approximate view.</p>
+    <div class="card"><svg class="chart" id="lensChart" role="img" aria-label="logit lens per stage"></svg>
+      <div class="legend"><span><span class="sw" style="background:var(--s1)"></span>A (correct sentence)</span>
+        <span><span class="sw" style="background:var(--s2)"></span>B (wrong sentence)</span>
+        <span>value = z[correct tool] − z[wrong tool]</span></div></div>
+    <p class="note"><b>B is still on the correct tool after layer 1 and switches to the wrong one at the layer-2 attention.</b></p>
   </div></div>
 
   <div class="step"><div class="dot">3</div><div>
-    <h3>attention: 2층에서 &lt;call&gt;은 어디에서 정보를 가져오나</h3>
-    <p class="note">칸의 진하기 = norm 기반 기여도 ‖Σ<sub>h</sub> A[k,j] · V[j] W<sub>O</sub>‖ (가중치 × 그 단어가 보내는 값의 크기).
-      가중치만 보면 "많이 봤지만 영향은 작은" 단어를 구별할 수 없어서 norm을 씁니다.</p>
+    <h3>Attention: where does &lt;call&gt; take its information from at layer 2?</h3>
+    <p class="note">Shade = norm-based contribution ‖Σ<sub>h</sub> A[k,j] · V[j] W<sub>O</sub>‖ (weight × size of what the word sends).
+      Weights alone cannot tell apart a word that is "looked at a lot but has little effect", so the norm is used.</p>
     <div class="card">
-      <p class="note" style="margin-top:0"><b>A (정답)</b></p><div class="tokens" id="attA"></div>
-      <p class="note"><b>B (오답)</b></p><div class="tokens" id="attB"></div>
+      <p class="note" style="margin-top:0"><b>A (correct)</b></p><div class="tokens" id="attA"></div>
+      <p class="note"><b>B (wrong)</b></p><div class="tokens" id="attB"></div>
       <p class="note" id="attNote" style="margin-bottom:0"></p>
     </div>
   </div></div>
 
   <div class="step"><div class="dot">4</div><div>
-    <h3>occlusion: 지워 보면 확인된다</h3>
-    <p class="note">B에서 단어를 하나씩 0으로 지우고, 오답 도구 점수 Z[&lt;call&gt;, 오답]이 얼마나 떨어지는지 직접 쟀습니다.
-      가장 큰 원인은 IG와 같지만, 작은 기여는 서로 다르게 봅니다(하나만 지운 효과 vs 경로 적분).</p>
+    <h3>Occlusion: removing a word confirms it</h3>
+    <p class="note">Each word of B is zeroed out in turn and the drop of the wrong tool's score Z[&lt;call&gt;, wrong] is measured directly.
+      The main cause matches IG, but small contributions differ (effect of removing one word vs. path integral).</p>
     <div class="grid2">
       <div class="card"><h3 style="margin-top:0">occlusion (zero)</h3><div id="occBox"></div></div>
       <div class="card"><h3 style="margin-top:0">IG</h3><div id="igBox"></div></div>
@@ -416,47 +416,47 @@ return s, GX                                           <span class="c"># ⑤ ∂
   </div></div>
 
   <div class="step"><div class="dot">5</div><div>
-    <h3>종합 진단: 네 가지 확인이 같은 단어를 가리키나</h3>
-    <div class="callout" style="margin-top:0"><b>draft 사례 결론:</b> <code>draft</code>가 2층 attention을 통해 결정 위치로 들어가 도구 선택을 뒤집었고,
-      그 연결은 학습 데이터에서 <code>draft</code>가 거의 항상 파일 쓰기와 함께 나왔기 때문에 생겼습니다.
-      IG ✓ · occlusion ✓ · 지우면 정답 복귀 ✓ · 2층 attention ✓</div>
+    <h3>Combined diagnosis: do the four checks point at the same word?</h3>
+    <div class="callout" style="margin-top:0"><b>Verdict for the draft case:</b> <code>draft</code> reached the decision position through the layer-2 attention
+      and flipped the tool choice; the link exists because <code>draft</code> almost always appeared with "write file" in training.
+      IG ✓ · occlusion ✓ · removal restores the tool ✓ · layer-2 attention ✓</div>
     <div class="card tablewrap">
       <table>
-        <thead><tr><th>바뀐 단어를 가리키나</th><th class="num">처음 모델</th><th class="num">보강 후</th></tr></thead>
+        <thead><tr><th>points at the edited word</th><th class="num">baseline</th><th class="num">augmented</th></tr></thead>
         <tbody id="agreeBody"></tbody>
       </table>
     </div>
-    <p class="note">네 가지가 모두 일치하면 근거가 되고, 어긋나는 경우(주로 attention)는 다음에 따라가 볼 공부거리입니다.</p>
+    <p class="note">When all four agree it is evidence; the cases where they disagree (mostly attention) are the next thing to study.</p>
   </div></div>
 </section>
 
 <!-- 8 -->
 <section id="s8">
-  <h2><span class="num">8</span>정리</h2>
+  <h2><span class="num">8</span>Summary</h2>
   <div class="card tablewrap">
     <table>
-      <thead><tr><th>방법</th><th>보는 것</th><th>장점</th><th>주의</th></tr></thead>
+      <thead><tr><th>method</th><th>what it measures</th><th>strength</th><th>caveat</th></tr></thead>
       <tbody>
-        <tr><td>|grad|</td><td>한 점에서의 민감도</td><td>역전파 1번</td><td>부호 없음, 포화되면 0</td></tr>
-        <tr><td>grad×input</td><td>1차 테일러 근사</td><td>역전파 1번, 부호 있음</td><td>비선형 구간에서 틀림</td></tr>
-        <tr><td>IG</td><td>기준점→입력 경로 적분</td><td>completeness로 검산 가능</td><td>역전파 여러 번, 기준점 선택에 따라 달라짐</td></tr>
-        <tr><td>occlusion</td><td>단어 하나를 지운 효과</td><td>정확하고 직관적, 내부를 못 보는 모델에도 사용</td><td>한 번에 하나라 단어 간 상호작용을 놓침</td></tr>
-        <tr><td>hidden state 비교</td><td>정답·오답 입력이 갈라지는 층</td><td>"어디서" 바뀌는지 보임</td><td>중간층 logit lens는 근사</td></tr>
-        <tr><td>attention</td><td>결정 위치가 정보를 가져오는 곳</td><td>경로가 보임</td><td>가중치 ≠ 영향, norm과 함께 봐야 함</td></tr>
+        <tr><td>|grad|</td><td>sensitivity at one point</td><td>one backward pass</td><td>no sign; 0 when saturated</td></tr>
+        <tr><td>grad×input</td><td>first-order Taylor term</td><td>one backward pass, signed</td><td>wrong in nonlinear regions</td></tr>
+        <tr><td>IG</td><td>integral along baseline → input</td><td>checkable via completeness</td><td>many backward passes; depends on the baseline</td></tr>
+        <tr><td>occlusion</td><td>effect of removing one word</td><td>exact, intuitive, works on black-box models</td><td>one at a time, misses interactions</td></tr>
+        <tr><td>hidden-state diff</td><td>layer where correct and wrong inputs part</td><td>shows <i>where</i> it changes</td><td>intermediate logit lens is approximate</td></tr>
+        <tr><td>attention</td><td>where the decision position reads from</td><td>shows the path</td><td>weight ≠ influence; read with the norm</td></tr>
       </tbody>
     </table>
   </div>
   <ul style="margin-top:20px">
-    <li><b>정확도만으로는 모른다.</b> 정확도 0.95의 모델이 명사 하나에 뒤집혔습니다. 원인은 attribution을 봐야 보입니다.</li>
-    <li><b>attribution은 가설, 검증은 따로.</b> 의심 단어를 지우거나 바꿔서 결과가 돌아오는지 확인합니다.</li>
-    <li><b>근본 원인은 대개 데이터.</b> 원인 단어가 학습 데이터에서 어떻게 분포했는지 보면 무엇을 보강할지 정해집니다.</li>
-    <li><b>점수 정의가 결과를 바꾼다.</b> 확률(log P)을 그대로 쓰면 포화로 0이 됩니다. softmax를 거치지 않은 logit <code>S = Z[&lt;call&gt;, y]</code>를 쓰면 포화가 없습니다.</li>
+    <li><b>Accuracy alone does not tell you.</b> A model with 0.95 accuracy flips on a single noun; the cause only shows up in attribution.</li>
+    <li><b>Attribution is a hypothesis; verify separately.</b> Remove or change the suspect word and check that the result comes back.</li>
+    <li><b>The root cause is usually the data.</b> How the culprit word was distributed in training tells you what to augment.</li>
+    <li><b>The score definition changes the result.</b> Using the probability (log P) saturates to 0; the plain logit <code>S = Z[&lt;call&gt;, y]</code> does not.</li>
   </ul>
 </section>
 
 <footer>
-  공부 진행 중인 저장소의 시각 정리 페이지입니다. 모델: NumPy TinyGPT (2층, d=64, 파라미터 약 7.8만) ·
-  기반 모델: <a href="https://github.com/ColumnBack/tinygpt-numpy">ColumnBack/tinygpt-numpy</a>
+  Visual notes for a work-in-progress study repository. Model: NumPy TinyGPT (2 layers, d=64, about 78K parameters) ·
+  base model: <a href="https://github.com/ColumnBack/tinygpt-numpy">ColumnBack/tinygpt-numpy</a>
 </footer>
 </div>
 
@@ -543,7 +543,7 @@ function divBars(svg, tokens, values, opts = {}) {
       "text-anchor": v >= 0 ? "start" : "end" }, svg);
     val.textContent = opts.fmt ? opts.fmt(v) : fmt(v, 2);
     const hit = el("rect", { x: 0, y, width: W, height: row, fill: "transparent" }, svg);
-    hover(hit, `<b>${t}</b><br>${opts.label || "값"} = ${opts.fmt ? opts.fmt(v) : fmt(v, 3)}`);
+    hover(hit, `<b>${t}</b><br>${opts.label || "value"} = ${opts.fmt ? opts.fmt(v) : fmt(v, 3)}`);
   });
 }
 
@@ -596,7 +596,7 @@ try { const t = localStorage.getItem("theme"); if (t) document.documentElement.d
     b.tokens.map(t => `<span class="tok"><span class="w">${t}</span></span>`).join("") +
     `<span class="tok fixed"><span class="w">&lt;call&gt;</span></span><span class="arrow">→</span>` +
     `<span class="tok out"><span class="w">${b.tool}</span></span>`;
-  const svg = el("svg", { class: "chart", role: "img", "aria-label": "도구별 확률" });
+  const svg = el("svg", { class: "chart", role: "img", "aria-label": "probability per tool" });
   $("#s1probs").appendChild(svg);
   const probs = Object.entries(b.probs);
   draw(() => divBars(svg, probs.map(p => short(p[0])), probs.map(p => p[1]), { oneSided: true, max: 1, label: "P", fmt: v => v.toFixed(3) }));
@@ -605,7 +605,7 @@ try { const t = localStorage.getItem("theme"); if (t) document.documentElement.d
 /* ---------- 2. flow diagram ---------- */
 (() => {
   const s = $("#flow");
-  const boxes = [["X = E[단어]", "단어 임베딩"], ["+ P", "위치 임베딩"], ["Block 1", "attention·FFN"], ["Block 2", "attention·FFN"], ["Z = H·Eᵀ", "<call> 위치 logit"], ["S", "Z[k, y]"]];
+  const boxes = [["X = E[word]", "word embedding"], ["+ P", "position emb."], ["Block 1", "attention·FFN"], ["Block 2", "attention·FFN"], ["Z = H·Eᵀ", "logit at <call>"], ["S", "Z[k, y]"]];
   const bw = 118, gap = 30, y = 70, h = 64, x0 = 10;
   boxes.forEach(([a, b], i) => {
     const x = x0 + i * (bw + gap);
@@ -623,10 +623,10 @@ try { const t = localStorage.getItem("theme"); if (t) document.documentElement.d
     el("path", { d: "M0,0 L10,5 L0,10 z", fill: c }, m);
   });
   const lab = (x, yy, txt, col) => { const t = el("text", { x, y: yy, "text-anchor": "middle" }, s); t.textContent = txt; if (col) t.style.fill = col; };
-  lab(x0 + 2.5 * (bw + gap) + bw / 2, 40, "forward: 학습 때와 같은 계산", "var(--text-2)");
-  lab(x0 + 2.5 * (bw + gap) + bw / 2, 178, "backward: block_backward 를 거꾸로 (파라미터 기울기는 버림)", "var(--neg)");
-  lab(x0 + bw / 2, 210, "∂S/∂X 에서 멈춤", "var(--neg)");
-  lab(x0 + 5 * (bw + gap) + bw / 2, 210, "loss 대신 점수 S", "var(--text-2)");
+  lab(x0 + 2.5 * (bw + gap) + bw / 2, 40, "forward: the same computation as in training", "var(--text-2)");
+  lab(x0 + 2.5 * (bw + gap) + bw / 2, 178, "backward: block_backward in reverse (parameter grads dropped)", "var(--neg)");
+  lab(x0 + bw / 2, 210, "stop at ∂S/∂X", "var(--neg)");
+  lab(x0 + 5 * (bw + gap) + bw / 2, 210, "score S instead of a loss", "var(--text-2)");
 })();
 
 /* ---------- 3. four methods ---------- */
@@ -635,10 +635,10 @@ try { const t = localStorage.getItem("theme"); if (t) document.documentElement.d
   $("#s3text").textContent = b.text; $("#s3tool").textContent = b.tool;
   $("#htmlGxi").textContent = fmt(b.grad_x_in[3], 3); $("#htmlIg").textContent = fmt(b.ig[3], 1);
   const M = [
-    ["ig", "IG", "기준점(0)에서 실제 입력까지 경로를 따라 기울기를 적분합니다. 모두 더하면 S(입력) − S(기준점)."],
-    ["grad_x_in", "grad×input", "기울기 · 임베딩. '0에서 지금 값까지 직선으로 변했다'고 가정한 1차 근사입니다."],
-    ["grad_norm", "|grad|", "이 단어를 살짝 흔들면 점수가 얼마나 민감하게 변하는지. 방향(부호)은 알려 주지 않습니다."],
-    ["occ", "occlusion", "그 단어 하나만 0으로 지웠을 때 점수가 얼마나 떨어지는지. 역전파 없이 직접 잽니다."],
+    ["ig", "IG", "Integrates the gradient along the path from the baseline (0) to the real input. The sum equals S(input) − S(baseline)."],
+    ["grad_x_in", "grad×input", "gradient · embedding: a first-order approximation that assumes a straight change from 0 to the current value."],
+    ["grad_norm", "|grad|", "How sensitive the score is to a small nudge of this word. It does not tell the direction (sign)."],
+    ["occ", "occlusion", "How much the score drops when only this word is zeroed out. Measured directly, without backprop."],
   ];
   const tabs = $("#methodTabs");
   let cur = "ig";
@@ -668,13 +668,13 @@ try { const t = localStorage.getItem("theme"); if (t) document.documentElement.d
   let W, X, Y, vline, dot;
   const set = i => {
     const a = b.alphas[i];
-    divBars($("#s4bars"), b.tokens, b.cum_ig[i], { max, label: `α=${a.toFixed(2)}까지 누적 IG` });
+    divBars($("#s4bars"), b.tokens, b.cum_ig[i], { max, label: `IG accumulated up to α=${a.toFixed(2)}` });
     vline.setAttribute("x1", X(a)); vline.setAttribute("x2", X(a));
     dot.setAttribute("cx", X(a)); dot.setAttribute("cy", Y(b.s_path[i]));
     const sum = b.cum_ig[i].reduce((p, q) => p + q, 0);
     $("#alphaVal").innerHTML = `α = <b>${a.toFixed(2)}</b>`;
-    $("#completeness").innerHTML = `누적 IG 합 = <b>${sum.toFixed(2)}</b> &nbsp;·&nbsp; S(α) − S(0) = <b>${(b.s_path[i] - b.s_path[0]).toFixed(2)}</b>` +
-      (i === n ? ` &nbsp;→ 끝까지 가면 두 값이 같아집니다 (작은 차이는 48단계 적분 근사 오차)` : "");
+    $("#completeness").innerHTML = `sum of accumulated IG = <b>${sum.toFixed(2)}</b> &nbsp;·&nbsp; S(α) − S(0) = <b>${(b.s_path[i] - b.s_path[0]).toFixed(2)}</b>` +
+      (i === n ? ` &nbsp;→ at the end the two match (the small gap is the error of a 48-step integral)` : "");
   };
   const build = () => {
     line.innerHTML = "";
@@ -683,7 +683,7 @@ try { const t = localStorage.getItem("theme"); if (t) document.documentElement.d
     X = a => L + a * (W - L - R); Y = v => T + (smax - v) / (smax - smin || 1) * (H - T - B);
     el("line", { x1: L, x2: W - R, y1: H - B, y2: H - B, class: "axis" }, line);
     el("line", { x1: L, x2: L, y1: T, y2: H - B, class: "axis" }, line);
-    [[0, "0 (기준점)"], [0.5, "0.5"], [1, "1 (실제 입력)"]].forEach(([a, t]) => {
+    [[0, "0 (baseline)"], [0.5, "0.5"], [1, "1 (real input)"]].forEach(([a, t]) => {
       const tx = el("text", { x: X(a), y: H - 8, "text-anchor": a === 0 ? "start" : a === 1 ? "end" : "middle" }, line); tx.textContent = t; });
     [smin, smax].forEach(v => { const t = el("text", { x: L - 6, y: Y(v) + 4, "text-anchor": "end" }, line); t.textContent = v.toFixed(1); });
     const ty = el("text", { x: L + 6, y: T + 4 }, line); ty.textContent = "S(α)";
@@ -717,33 +717,33 @@ try { const t = localStorage.getItem("theme"); if (t) document.documentElement.d
 (() => {
   const base = D.base, aug = D.aug;
   $("#tiles").innerHTML = [
-    ["처음 보는 긴 문장 정확도", base.acc.toFixed(2), "겉보기엔 괜찮음"],
-    ["명사 하나로 뒤집히는 문장", `${base.fragile} / ${base.checked}`, "맞힌 문장 중"],
-    ["판정을 뒤집는 치환", base.flips, "명사→명사 한 개"],
+    ["accuracy on unseen long requests", base.acc.toFixed(2), "looks fine"],
+    ["requests flipped by one noun", `${base.fragile} / ${base.checked}`, "of the correct ones"],
+    ["flipping edits", base.flips, "one noun → another noun"],
   ].map(([k, n, d]) => `<div class="tile"><div class="k">${k}</div><div class="n">${n}</div><div class="d">${d}</div></div>`).join("");
 
   const words = [...new Set([...base.top_words.map(w => w[0]), ...aug.top_words.map(w => w[0])])].slice(0, 10);
   const get = (src, w) => (src.top_words.find(x => x[0] === w) || [0, 0])[1];
   draw(() => hBars($("#flipChart"), words, [
-    { name: "처음 모델", color: "var(--s1)", values: words.map(w => get(base, w)) },
-    { name: "보강 후", color: "var(--s2)", values: words.map(w => get(aug, w)) },
-  ], { unit: "뒤집은 횟수 " }));
+    { name: "baseline", color: "var(--s1)", values: words.map(w => get(base, w)) },
+    { name: "augmented", color: "var(--s2)", values: words.map(w => get(aug, w)) },
+  ], { unit: "flips " }));
 
   const chipMax = Math.max(...["before", "after", "after_aug"].flatMap(k => D[k].ig.map(Math.abs)));
   const show = (key, toolBox, tokBox, note) => {
     const r = D[key];
-    $(toolBox).innerHTML = `<b>${r.tool}</b> ${note} <span class="note">(점수 S = Z[&lt;call&gt;, ${short(r.tool)}] = ${r.s.toFixed(1)})</span>`;
+    $(toolBox).innerHTML = `<b>${r.tool}</b> ${note} <span class="note">(score S = Z[&lt;call&gt;, ${short(r.tool)}] = ${r.s.toFixed(1)})</span>`;
     chips($(tokBox), r.tokens, r.ig, { label: "IG", d: 1, max: chipMax });
   };
-  show("before", "#beforeTool", "#beforeTokens", "(정답)");
-  show("after", "#afterTool", "#afterTokens", "(오답)");
-  show("after_aug", "#augTool", "#augTokens", "(정답)");
-  $("#verifyTool").textContent = D.verify + " (정답)";
+  show("before", "#beforeTool", "#beforeTokens", "(correct)");
+  show("after", "#afterTool", "#afterTokens", "(wrong)");
+  show("after_aug", "#augTool", "#augTokens", "(correct)");
+  $("#verifyTool").textContent = D.verify + " (correct)";
 
   const c = D.cooc;
-  draw(() => hBars($("#coocChart"), c.map(x => short(x[0])), [{ name: "draft 와 함께 나온 횟수", color: "var(--s1)", values: c.map(x => x[1]) }], { unit: "" }));
+  draw(() => hBars($("#coocChart"), c.map(x => short(x[0])), [{ name: "times seen with draft", color: "var(--s1)", values: c.map(x => x[1]) }], { unit: "" }));
 
-  $("#cmpBody").innerHTML = [["처음 모델", base], ["보강 후", aug]].map(([n, r]) =>
+  $("#cmpBody").innerHTML = [["baseline", base], ["augmented", aug]].map(([n, r]) =>
     `<tr><td>${n}</td><td class="num">${r.acc.toFixed(2)}</td><td class="num">${r.fragile} / ${r.checked}</td><td class="num">${r.flips}</td></tr>`).join("");
 })();
 
@@ -764,7 +764,7 @@ try { const t = localStorage.getItem("theme"); if (t) document.documentElement.d
       `<div class="c${j === k ? " call" : ""}" style="background:color-mix(in oklab, var(--pos) ${Math.round(v / max * 75)}%, var(--surface))" data-t="${esc(Ly.tokens_b[j])}" data-s="${st}" data-v="${v}">${v.toFixed(2)}</div>`).join("");
   });
   heat.innerHTML = h;
-  heat.querySelectorAll(".c").forEach(c => hover(c, `<b>${c.dataset.t}</b> · ${c.dataset.s}<br>상대 차이 = ${c.dataset.v}`));
+  heat.querySelectorAll(".c").forEach(c => hover(c, `<b>${c.dataset.t}</b> · ${c.dataset.s}<br>relative diff = ${c.dataset.v}`));
 
   // logit lens: grouped diverging bars, A and B per stage
   draw(() => {
@@ -782,7 +782,7 @@ try { const t = localStorage.getItem("theme"); if (t) document.documentElement.d
       [[Ly.lens_a[i], "var(--s1)", "A", -1], [Ly.lens_b[i], "var(--s2)", "B", 1]].forEach(([v, col, nm, side]) => {
         const x = cx + side * (bw / 2 + 1) - bw / 2, y = Math.min(Y(v), Y(0)), hh = Math.max(1, Math.abs(Y(v) - Y(0)));
         const rect = el("rect", { x, y, width: bw, height: hh, rx: 3, fill: col }, svg);
-        hover(rect, `<b>${st}</b> · ${nm}<br>z[정답] − z[오답] = ${v.toFixed(2)}`);
+        hover(rect, `<b>${st}</b> · ${nm}<br>z[correct] − z[wrong] = ${v.toFixed(2)}`);
       });
     });
   });
@@ -797,7 +797,7 @@ try { const t = localStorage.getItem("theme"); if (t) document.documentElement.d
       sp.className = "tok" + (j === k ? " fixed" : "");
       sp.style.background = `color-mix(in oklab, var(--pos) ${Math.round(norm[j] / amax * 75)}%, var(--surface))`;
       sp.innerHTML = `<span class="w">${esc(t)}</span><span class="v">${norm[j].toFixed(0)}</span>`;
-      hover(sp, `<b>${esc(t)}</b><br>norm 기여도 ${norm[j].toFixed(1)} · 가중치 ${w[j].toFixed(2)}`);
+      hover(sp, `<b>${esc(t)}</b><br>norm contribution ${norm[j].toFixed(1)} · weight ${w[j].toFixed(2)}`);
       box.appendChild(sp);
     });
   };
@@ -805,9 +805,9 @@ try { const t = localStorage.getItem("theme"); if (t) document.documentElement.d
   attChips($("#attB"), Ly.tokens_b, Ly.att_norm_b[L2], Ly.att_w_b[L2]);
   const argmax = a => a.indexOf(Math.max(...a));
   const topA = argmax(Ly.att_norm_a[L2].slice(0, k)), topB = argmax(Ly.att_norm_b[L2].slice(0, k));
-  $("#attNote").innerHTML = `정답 문장에서는 요청 단어 <code>${esc(Ly.tokens_a[topA])}</code>(${Ly.att_norm_a[L2][topA].toFixed(1)})에서,
-    오답 문장에서는 <code>${esc(Ly.tokens_b[topB])}</code>(${Ly.att_norm_b[L2][topB].toFixed(1)})에서 가장 많은 정보를 가져옵니다.
-    칸 아래 숫자 = norm 기여도.`;
+  $("#attNote").innerHTML = `In the correct sentence &lt;call&gt; takes the most from the request word <code>${esc(Ly.tokens_a[topA])}</code>(${Ly.att_norm_a[L2][topA].toFixed(1)}),
+    in the wrong sentence from <code>${esc(Ly.tokens_b[topB])}</code>(${Ly.att_norm_b[L2][topB].toFixed(1)}).
+    Number under each word = norm contribution.`;
 
   // occlusion vs IG on B
   const m = Math.max(...Ly.occ_b.map(Math.abs), ...Ly.ig_b.map(Math.abs));
@@ -821,10 +821,10 @@ try { const t = localStorage.getItem("theme"); if (t) document.documentElement.d
   // agreement table
   const ab = Ly.agree_base, aa = Ly.agree_aug, pct = v => Math.round(v * 100) + "%";
   $("#agreeBody").innerHTML = [
-    ["IG가 1위로 꼽음", "ig"], ["occlusion이 1위로 꼽음", "occ"], ["지우면 정답으로 돌아옴", "restores"],
-    ["오답으로 넘어간 층의 attention이 1위로 꼽음", "att"], ["<b>네 가지 모두 일치</b>", "all"],
+    ["IG ranks it first", "ig"], ["occlusion ranks it first", "occ"], ["removing it restores the tool", "restores"],
+    ["attention ranks it first (at the layer where it switches)", "att"], ["<b>all four agree</b>", "all"],
   ].map(([lab, key]) => `<tr><td>${lab}</td><td class="num">${pct(ab[key])}</td><td class="num">${pct(aa[key])}</td></tr>`).join("") +
-    `<tr><td class="note">오판 수</td><td class="num note">${ab.n}</td><td class="num note">${aa.n}</td></tr>`;
+    `<tr><td class="note">wrong decisions</td><td class="num note">${ab.n}</td><td class="num note">${aa.n}</td></tr>`;
 })();
 
 /* ---------- 0. guided tour of the diagnosis process ---------- */
@@ -837,23 +837,23 @@ try { const t = localStorage.getItem("theme"); if (t) document.documentElement.d
   const svgIn = (id) => `<svg class="chart" id="${id}" role="img"></svg>`;
 
   const steps = [
-    { tab: "① 오판 발견", q: "무엇이 틀렸나?", title: "명사 하나만 바꿨는데 도구가 바뀌었다",
-      say: "상황 설명의 명사 하나만 바꿔 보는 자동 점검에서 찾은 오판입니다. 요청(read the log file)은 그대로라 정답도 그대로여야 합니다.",
+    { tab: "① Spot the error", q: "What went wrong?", title: "One noun changed, and so did the tool",
+      say: "Found by an automatic audit that changes a single noun in the context. The request (read the log file) is untouched, so the answer should not change.",
       body: () => `<div class="sent">A&nbsp; ${sent(Ly.tokens_a, "ok")} → <b>${Ly.gold}</b> ✓<br>B&nbsp; ${sent(Ly.tokens_b, "hl")} → <b>${Ly.wrong}</b> ✗</div>
         <div class="tiles" style="margin-top:16px">
-          <div class="tile"><div class="k">처음 보는 긴 문장 정확도</div><div class="n">${base.acc.toFixed(2)}</div><div class="d">겉보기엔 괜찮음</div></div>
-          <div class="tile"><div class="k">명사 하나로 뒤집히는 문장</div><div class="n">${base.fragile} / ${base.checked}</div><div class="d">맞힌 문장 중</div></div></div>` },
-    { tab: "② 어떤 단어?", q: "기법: IG (Integrated Gradients)", title: "오답을 끌어올린 단어는 draft",
-      say: "오답 도구의 logit S = Z[<call>, 오답]을 입력 단어까지 역전파하고, 기준점(0)에서 실제 입력까지 경로를 따라 적분했습니다. 막대가 길수록 오답 쪽으로 민 단어입니다.",
+          <div class="tile"><div class="k">accuracy on unseen long requests</div><div class="n">${base.acc.toFixed(2)}</div><div class="d">looks fine</div></div>
+          <div class="tile"><div class="k">requests flipped by one noun</div><div class="n">${base.fragile} / ${base.checked}</div><div class="d">of the correct ones</div></div></div>` },
+    { tab: "② Which word?", q: "Method: IG (Integrated Gradients)", title: "The word that raised the wrong tool is draft",
+      say: "The wrong tool's logit S = Z[<call>, wrong] is backpropagated to the input words and integrated along the path from the baseline (0) to the real input. Longer bars pushed harder toward the wrong tool.",
       body: () => svgIn("tIg"), draw: () => divBars($("#tIg"), words, Ly.ig_b, { label: "IG" }) },
-    { tab: "③ 지워서 확인", q: "기법: occlusion", title: "draft를 지우면 정답으로 돌아온다",
-      say: "IG는 가설입니다. 단어를 하나씩 지워(임베딩 0) 오답 점수가 얼마나 떨어지는지 직접 쟀습니다. draft 하나만 지워도 정답 도구로 돌아옵니다.",
-      body: () => svgIn("tOcc") + `<p class="note">draft 제거 → <b>${D.verify}</b> ✓ (오판 207건 전체에서 바뀐 단어를 지우면 100% 정답으로 돌아옴)</p>`,
+    { tab: "③ Remove it", q: "Method: occlusion", title: "Remove draft and the right tool comes back",
+      say: "IG is a hypothesis. Each word is zeroed out in turn and the drop of the wrong score is measured directly. Removing draft alone brings back the right tool.",
+      body: () => svgIn("tOcc") + `<p class="note">draft removed → <b>${D.verify}</b> ✓ (over all 207 flips, removing the edited word restores the right tool 100% of the time)</p>`,
       draw: () => divBars($("#tOcc"), Ly.occ_tokens, Ly.occ_b, { label: "occlusion" }) },
-    { tab: "④ 몇 번째 층?", q: "기법: 층별 hidden state 비교 · logit lens", title: "2층 attention에서 오답으로 넘어간다",
-      say: "A와 B의 결정 위치(<call>) hidden state를 층마다 비교했습니다. 아래 막대는 각 단계에서 정답 도구가 얼마나 앞서는지(z[정답] − z[오답])입니다. B는 1층까지 정답 쪽이다가 2층 attention에서 뒤집힙니다.",
-      body: () => svgIn("tLens") + `<div class="legend"><span><span class="sw" style="background:var(--s1)"></span>A (정답)</span><span><span class="sw" style="background:var(--s2)"></span>B (오답)</span></div>
-        <p class="note">층마다 새로 생긴 차이 ΔD: L1 <b>+${Ly.dD_l.L1.toFixed(2)}</b>, L2 <b>+${Ly.dD_l.L2.toFixed(2)}</b> → 2층이 차이를 가장 많이 만든다.</p>`,
+    { tab: "④ Which layer?", q: "Method: layer-wise hidden-state diff · logit lens", title: "It switches to the wrong tool at the layer-2 attention",
+      say: "The hidden states at the decision position (<call>) of A and B are compared layer by layer. The bars show how far the correct tool is ahead at each stage (z[correct] − z[wrong]). B stays correct through layer 1 and flips at the layer-2 attention.",
+      body: () => svgIn("tLens") + `<div class="legend"><span><span class="sw" style="background:var(--s1)"></span>A (correct)</span><span><span class="sw" style="background:var(--s2)"></span>B (wrong)</span></div>
+        <p class="note">New divergence per layer ΔD: L1 <b>+${Ly.dD_l.L1.toFixed(2)}</b>, L2 <b>+${Ly.dD_l.L2.toFixed(2)}</b> → layer 2 creates most of the difference.</p>`,
       draw: () => {
         const svg = $("#tLens"); svg.innerHTML = "";
         const W = widthOf(svg), H = 190, L = 44, R = 8, T0 = 8, B = 26;
@@ -868,31 +868,31 @@ try { const t = localStorage.getItem("theme"); if (t) document.documentElement.d
           [[Ly.lens_a[i], "var(--s1)", -1, "A"], [Ly.lens_b[i], "var(--s2)", 1, "B"]].forEach(([v, c, sd, nm]) => {
             const rect = el("rect", { x: cx + sd * (bw / 2 + 1) - bw / 2, y: Math.min(Y(v), Y(0)), width: bw,
               height: Math.max(1, Math.abs(Y(v) - Y(0))), rx: 3, fill: c }, svg);
-            hover(rect, `<b>${st}</b> · ${nm}<br>z[정답] − z[오답] = ${v.toFixed(2)}`);
+            hover(rect, `<b>${st}</b> · ${nm}<br>z[correct] − z[wrong] = ${v.toFixed(2)}`);
           });
         });
       } },
-    { tab: "⑤ 어떤 경로?", q: "기법: attention 분석", title: "2층에서 <call>이 보는 곳이 log → draft로 바뀐다",
-      say: "결정 위치 <call>이 2층 attention에서 어느 단어로부터 정보를 가져오는지(norm 기반 기여도) 비교했습니다. 정답 문장에서는 요청 단어 log에서, 오답 문장에서는 draft에서 가져옵니다.",
-      body: () => `<p class="note" style="margin-top:0"><b>A (정답)</b></p><div class="tokens" id="tAttA"></div>
-        <p class="note"><b>B (오답)</b></p><div class="tokens" id="tAttB"></div>`,
+    { tab: "⑤ Which path?", q: "Method: attention analysis", title: "At layer 2, <call> switches from reading log to reading draft",
+      say: "Which word the decision position <call> takes its information from at the layer-2 attention (norm-based contribution). In the correct sentence it is the request word log; in the wrong one, draft.",
+      body: () => `<p class="note" style="margin-top:0"><b>A (correct)</b></p><div class="tokens" id="tAttA"></div>
+        <p class="note"><b>B (wrong)</b></p><div class="tokens" id="tAttB"></div>`,
       draw: () => {
         const mx = Math.max(...Ly.att_norm_a[L2], ...Ly.att_norm_b[L2]);
         [["#tAttA", Ly.tokens_a, Ly.att_norm_a[L2]], ["#tAttB", Ly.tokens_b, Ly.att_norm_b[L2]]].forEach(([id, toks, nm]) => {
           $(id).innerHTML = toks.map((t, j) => `<span class="tok${j === k ? " fixed" : ""}" style="background:color-mix(in oklab, var(--pos) ${Math.round(nm[j] / mx * 75)}%, var(--surface))"><span class="w">${esc(t)}</span><span class="v">${nm[j].toFixed(0)}</span></span>`).join("");
         });
       } },
-    { tab: "⑥ 왜?", q: "학습 데이터 확인", title: "draft는 학습 데이터에서 거의 항상 '파일 쓰기'와 함께 나왔다",
-      say: "모델이 왜 이런 연결을 배웠는지는 데이터에 있습니다. draft는 파일 쓰기 요청의 목적어(the draft to a file)에도 들어 있어서, 위치와 상관없이 'draft = 쓰기'로 배웠습니다.",
+    { tab: "⑥ Why?", q: "Check the training data", title: "In training, draft almost always came with 'write file'",
+      say: "Why the model learned this link is in the data. draft is also an object of write-file requests (the draft to a file), so it learned 'draft = write' regardless of position.",
       body: () => svgIn("tCooc"),
-      draw: () => hBars($("#tCooc"), D.cooc.map(x => short(x[0])), [{ name: "draft와 함께 나온 횟수", color: "var(--s1)", values: D.cooc.map(x => x[1]) }]) },
-    { tab: "⑦ 고치기", q: "데이터 보강 후 다시 점검", title: "보강하면 draft의 영향이 사라진다",
-      say: "같은 요청에 무작위 상황 설명을 붙인 사본을 추가해 다시 학습했습니다. 같은 B 문장이 이제 정답이고, draft의 IG는 거의 0입니다. 오판도 크게 줄었지만 0은 아닙니다 — 다음에 고칠 곳은 다시 이 과정으로 찾습니다.",
+      draw: () => hBars($("#tCooc"), D.cooc.map(x => short(x[0])), [{ name: "times seen with draft", color: "var(--s1)", values: D.cooc.map(x => x[1]) }]) },
+    { tab: "⑦ Fix it", q: "Augment the data and audit again", title: "After augmentation, draft no longer matters",
+      say: "Copies of each request with a random context were added and the model retrained. The same sentence B is now correct and the IG of draft is about 0. Errors drop a lot but not to zero — the next fix is found by running this process again.",
       body: () => `<div class="tokens" id="tAug"></div>
         <div class="tiles" style="margin-top:16px">
-          <div class="tile"><div class="k">명사 하나로 뒤집히는 문장</div><div class="n">${base.fragile}/${base.checked} → ${aug.fragile}/${aug.checked}</div><div class="d">처음 모델 → 보강 후</div></div>
-          <div class="tile"><div class="k">판정을 뒤집는 치환</div><div class="n">${base.flips} → ${aug.flips}</div><div class="d">남은 주범: folder, weekend</div></div></div>
-        <div class="chain"><span class="n">오판 발견</span><span class="a">→</span><span class="n">IG</span><span class="a">→</span><span class="n">occlusion</span><span class="a">→</span><span class="n">hidden state</span><span class="a">→</span><span class="n">attention</span><span class="a">→</span><span class="n">데이터</span><span class="a">→</span><span class="n">보강</span><span class="a">↺</span></div>`,
+          <div class="tile"><div class="k">requests flipped by one noun</div><div class="n">${base.fragile}/${base.checked} → ${aug.fragile}/${aug.checked}</div><div class="d">baseline → augmented</div></div>
+          <div class="tile"><div class="k">flipping edits</div><div class="n">${base.flips} → ${aug.flips}</div><div class="d">remaining culprits: folder, weekend</div></div></div>
+        <div class="chain"><span class="n">spot the error</span><span class="a">→</span><span class="n">IG</span><span class="a">→</span><span class="n">occlusion</span><span class="a">→</span><span class="n">hidden state</span><span class="a">→</span><span class="n">attention</span><span class="a">→</span><span class="n">data</span><span class="a">→</span><span class="n">augment</span><span class="a">↺</span></div>`,
       draw: () => chips($("#tAug"), D.after_aug.tokens, D.after_aug.ig, { label: "IG", d: 1 }) },
   ];
 
