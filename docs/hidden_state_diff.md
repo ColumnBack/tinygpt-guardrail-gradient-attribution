@@ -29,6 +29,16 @@ $$
 
 ## 세 가지 측정
 
+**0. 층별 점수 D_ℓ** ([`Interpretability math.pdf`](../Interpretability%20math.pdf) 2쪽)
+
+$$
+D_\ell = \frac{1}{T} \sum_{i=1}^{T} \left\lVert H_i^{F,(\ell)} - H_i^{N,(\ell)} \right\rVert_2, \qquad \ell^* = \arg\max_\ell D_\ell
+$$
+
+N = 정답 입력 A, F = 오답 입력 B, $H^{(\ell)}$ = 블록 ℓ의 출력. `draft` 사례는 $D_{L1} = 2.01,\ D_{L2} = 7.90$ 으로 $\ell^* = L2$ 다.
+오판 207건 중 206건이 $\ell^* = L2$ 다. 2층 모델에서는 차이가 층을 지날수록 쌓여서 거의 항상 마지막 층이 최대가 되므로,
+"차이가 가장 큰 층"만으로는 **언제 판정이 넘어가는지**를 구별하기 어렵다. 그래서 아래 2번 logit lens로 보완한다.
+
 **1. 위치별 상대 차이**
 
 $$

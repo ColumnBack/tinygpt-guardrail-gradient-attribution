@@ -90,6 +90,15 @@ def rel_diff(hA, hB):
     return np.linalg.norm(hB - hA, axis=1) / (np.linalg.norm(hA, axis=1) + 1e-12)
 
 
+def layer_score(names, SA, SB):
+    """Layer-level score (Interpretability math.pdf p.2), on the block outputs H^(l):
+        D_l = (1/T) sum_i || H_i^{F,(l)} - H_i^{N,(l)} ||_2,     l* = argmax_l D_l
+    N = normal (correct) input A, F = wrong input B. Returns ({layer: D_l}, l*)."""
+    D = {name.split(".")[0]: float(np.linalg.norm(b - a, axis=1).mean())
+         for name, a, b in zip(names, SA, SB) if name.endswith(".ffn")}
+    return D, max(D, key=D.get)
+
+
 def settle_stage(margins, names):
     """First stage s >= 1 from which every later margin is < 0 (wrong tool ahead)."""
     for s in range(1, len(margins)):
@@ -146,6 +155,9 @@ def compare(model, token_to_id, text_a, text_b, gold=None):
     print("    " + " " * 10 + "".join(f"{shade(D[-1, i], vmax) * 3:>7}" for i in range(len(toks)))
           + "   <- last stage, shaded")
     print(f"    at <call>: " + "  ".join(f"{n} {D[s, k]:.2f}" for s, n in enumerate(names)))
+    Dl, lstar = layer_score(names, SA, SB)
+    print("    layer score D_l = (1/T) sum_i ||H_B - H_A||_2 on block outputs:  "
+          + "  ".join(f"{l} {v:.2f}" for l, v in Dl.items()) + f"   -> l* = {lstar}")
 
     # 2 ----------------------------------------------------------------
     print(f"\n 2. logit lens at <call>:  z[{gold}] - z[{wrong}]   (> 0: correct tool ahead)")
@@ -180,7 +192,7 @@ def first_wrong_stage(model, token_to_id, ids_a, ids_b, gold, wrong):
 
 def summary(model, token_to_id, test):
     flips, n_checked, n_fragile = L.audit(model, token_to_id, test)
-    stages = Counter()
+    stages, lstars = Counter(), Counter()
     d_flip, d_keep = [], []
     seen = set()
     for x, pos, old, new, pred in flips:
@@ -188,6 +200,7 @@ def summary(model, token_to_id, test):
         ids_b, _ = encode_request(token_to_id, L.edited_text(x, pos, new))
         st, names, SA, SB = first_wrong_stage(model, token_to_id, ids_a, ids_b, x["tool"], pred)
         stages[st] += 1
+        lstars[layer_score(names, SA, SB)[1]] += 1
         k = len(ids_a) - 1
         d_flip.append([rel_diff(a, b)[k] for a, b in zip(SA, SB)])
         # a non-flipping noun swap at the same position, once per (sentence, position)
@@ -216,6 +229,9 @@ def summary(model, token_to_id, test):
         kv = f"{K[s]:>14.3f}" if K is not None else f"{'-':>14}"
         print(f"    {name:<10}{F[s]:>10.3f}{kv}")
     print(f"    (non-flipping: {len(d_keep)} swaps of the same noun position that kept the tool)")
+    print("\n l* = argmax_l D_l (layer where A and B differ most, averaged over positions):")
+    for l, c in sorted(lstars.items()):
+        print(f"    {l:<10} {c:>4}")
 
 
 # ====================================================================

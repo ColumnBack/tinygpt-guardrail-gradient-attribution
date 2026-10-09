@@ -4,7 +4,8 @@ English | [한국어](README.ko.md)
 
 > **Work in progress.** This is a personal study of interpretability methods, not a finished project.
 > Experiments, numbers and code may change as the study goes on.
-> A write-up of the math (attribution derivations) will be added once the documentation is finished.
+> Math notes: [`Interpretability math.pdf`](Interpretability%20math.pdf) (handwritten: hidden-state difference, gradient attribution, IG, attention).
+> A typed write-up will be added once the documentation is finished.
 
 A study project: train a from-scratch NumPy GPT (`tinygpt.py`, hand-derived forward/backward) as an
 MCP tool selector, then use interpretability methods to find **which input tokens made it pick that tool —
@@ -12,10 +13,11 @@ and, when it is wrong, which tokens caused the mistake**.
 
 | Method | Question it answers | Status |
 |---|---|---|
-| Gradient attribution (IG, grad×input, occlusion) | **Which** input tokens drove the decision? | done — `tool_attribution.py` |
+| Gradient attribution (IG, grad×input) | **Which** input tokens drove the decision? | done — `tool_attribution.py` ([IG math](docs/ig_formula.md)) |
+| Occlusion | Which token, when removed, brings the right answer back? | done — `occlusion_analysis.py` ([notes](docs/occlusion.md)) |
 | Layer-wise hidden-state diff | **At which layer** do a correct and a wrong input diverge? | done — `hidden_state_diff.py` ([notes](docs/hidden_state_diff.md)) |
-| Attention analysis | **Where** does the decision position look? | planned — `attention_analysis.py` |
-| Combined diagnosis | All three on the same misprediction | planned — `diagnose.py` |
+| Attention analysis | **Where** does the decision position take its information from? | done — `attention_analysis.py` ([notes](docs/attention.md)) |
+| Combined diagnosis | All methods on the same misprediction, plus the training data | done — `diagnose.py` ([notes](docs/diagnose.md)) |
 
 All methods share one model, one dataset and the same mispredicted examples, so their answers can be compared directly.
 
@@ -49,12 +51,16 @@ attack techniques are out of scope, and results on this model do not carry over 
 |---|---|
 | `tinygpt.py` | NumPy GPT (multi-head attention, LayerNorm, FFN, tied LM head, Adam) |
 | `GPT math.pdf` | Forward/backward derivation of the model |
+| `Interpretability math.pdf` | Handwritten math of the methods: layer score D_l and l*, S = Z_{T,y} and input×gradient, IG, attention j* and ΔA |
 | `tool_data.py` | 10 tools (filesystem / web / weather / calendar / email / db / git), template corpus. Test split by (verb, object) **combination** |
 | `train_tool_gpt.py` | Masked cross-entropy on the tool token only (`G_logits = w ⊙ (P − Y)`), `--check` runs a gradcheck |
 | `select_tool.py` | Request → top-k tool probabilities |
 | `tool_attribution.py` | Attribution from `∂s/∂X_token`: \|grad\|, grad×input, Integrated Gradients (with completeness check), occlusion |
 | `long_sentence_study.py` | Long requests: find one-noun edits that flip the tool, then IG → verify → root cause in data → augment |
 | `hidden_state_diff.py` | Same flips, layer by layer: per-position hidden-state diff, logit lens at `<call>`, attention vs FFN change |
+| `attention_analysis.py` | Where `<call>` takes its information from: weight, norm-based contribution, rollout; correct vs wrong input |
+| `occlusion_analysis.py` | Remove tokens (zero / mean / delete), pairwise interactions, rank agreement with IG |
+| `diagnose.py` | One misprediction through IG → occlusion → hidden state → attention → training data, with a verdict |
 | `guardrail.py` | Educational prompt-injection detector (same TinyGPT, same masked loss) |
 | `tool_model.npz` | Trained weights (regenerate with `train_tool_gpt.py --retrain`, ~30 s) |
 
@@ -114,11 +120,20 @@ python long_sentence_study.py --augment --retrain   # after the fix
 python long_sentence_study.py --text "the draft shows an error so help me read the log file"
 python hidden_state_diff.py               # where the draft flip happens, layer by layer
 python hidden_state_diff.py --summary     # the same over all flips
+python attention_analysis.py              # where <call> looks, correct vs wrong input
+python occlusion_analysis.py              # remove tokens one / two at a time
+python diagnose.py                        # all methods on the draft flip, with a verdict
+python diagnose.py --all                  # how often the methods agree over all flips
 ```
 
 Layer view of the `draft` flip ([details](docs/hidden_state_diff.md)): at `<call>`, B still prefers the correct tool after block 1
 (logit-lens margin 0.81) and switches at the **block-2 attention** (−1.73), where the `<call>` hidden-state diff jumps from 0.27 to 0.95.
 Over all 207 flips, flipping edits change the `<call>` state 7–17× more (depending on the layer) than non-flipping swaps of the same noun.
+
+**Combined diagnosis** ([details](docs/diagnose.md)): for the `draft` flip, IG and occlusion both rank `draft` first,
+removing it restores the right tool, and at layer 2 `<call>` takes most of its information from `draft` (in the correct
+sentence it took it from the request word `log`). Over all 207 flips, all four checks agree in 60% of cases;
+the cases where they disagree (mostly attention) are the next thing to study.
 
 ### Debugging workflow (printed in order by the script)
 
