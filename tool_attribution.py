@@ -94,21 +94,21 @@ def attribute(model, ids, tool_id, rival_id=None, steps=64):
     k = len(ids) - 1                       # <CALL> is the last input token
     X = model.p["E"][ids].copy()
 
-    # baseline X' (= B): zero embedding for request words, keep <BOS> and <CALL>
-    B = X.copy()
-    B[1:k] = 0.0
+    # baseline X' (written Xp, "X prime"): zero embedding for request words, keep <BOS> and <CALL>
+    Xp = X.copy()
+    Xp[1:k] = 0.0
 
     s, g = score_and_grad(model, X, k, tool_id, rival_id)
-    s_base, _ = score_and_grad(model, B, k, tool_id, rival_id)
+    s_base, _ = score_and_grad(model, Xp, k, tool_id, rival_id)
 
     # Integrated Gradients, midpoint Riemann sum:
     #   IG_j ~ (X_j - X'_j) * mean_k dS(t)/dt_j at t = X' + alpha_k (X - X'),
     #   alpha_k = (k - 1/2) / steps
     acc = np.zeros_like(X)
     for a in (np.arange(steps) + 0.5) / steps:
-        _, ga = score_and_grad(model, B + a * (X - B), k, tool_id, rival_id)
+        _, ga = score_and_grad(model, Xp + a * (X - Xp), k, tool_id, rival_id)
         acc += ga
-    ig = ((X - B) * (acc / steps)).sum(1)
+    ig = ((X - Xp) * (acc / steps)).sum(1)
 
     occ = np.zeros(len(ids))
     for i in range(1, k):

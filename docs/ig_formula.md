@@ -9,11 +9,11 @@ $$
 `tool_attribution.py`의 `attribute` 함수가 이 식을 그대로 계산한다.
 
 ```python
-B = X.copy(); B[1:k] = 0.0                       # X' (기준점)
+Xp = X.copy(); Xp[1:k] = 0.0                     # X' (기준점)
 for a in (np.arange(steps) + 0.5) / steps:       # α를 구간 가운데 점으로 샘플링
-    _, ga = score_and_grad(model, B + a * (X - B), ...)   # ∂S(t)/∂t at t = X' + α(X − X')
+    _, ga = score_and_grad(model, Xp + a * (X - Xp), ...)   # ∂S(t)/∂t at t = X' + α(X − X')
     acc += ga
-ig = ((X - B) * (acc / steps)).sum(1)            # (X − X') × 평균 기울기
+ig = ((X - Xp) * (acc / steps)).sum(1)           # (X − X') × 평균 기울기
 ```
 
 - **적분 근사**: 적분은 구간 가운데 점을 쓰는 리만 합으로 계산한다. `steps`가 클수록 정확하고, 기본값은 64, 진단 예제에서는 256을 썼다.
