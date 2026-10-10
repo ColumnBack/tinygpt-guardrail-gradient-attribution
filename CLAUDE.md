@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Study repo (WIP): interpretability methods on a NumPy TinyGPT trained as an MCP tool selector,
+Study repo (completed): interpretability methods on a NumPy TinyGPT trained as an MCP tool selector,
 used to find the tokens behind wrong decisions. GitHub: ColumnBack/tinygpt-interpretability,
 Pages: https://columnback.github.io/tinygpt-interpretability/ (served from `main` `/docs`).
 

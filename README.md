@@ -6,8 +6,8 @@ English | [한국어](README.ko.md)
 > A 7-step interactive tour from one wrong decision to its cause — which word, which layer, which path, and why —
 > with real numbers from the code. Source: [`docs/en/index.html`](docs/en/index.html), [`docs/index.html`](docs/index.html).
 
-> **Work in progress.** This is a personal study of interpretability methods, not a finished project.
-> Experiments, numbers and code may change as the study goes on.
+> **A personal study of interpretability methods (completed).**
+> Every number in this README, the docs and the pages comes from running the code here.
 > Math notes: [`Interpretability math.pdf`](Interpretability%20math.pdf) (handwritten: hidden-state difference, gradient attribution, IG, attention).
 
 A study project: train a from-scratch NumPy GPT (`tinygpt.py`, hand-derived forward/backward) as an

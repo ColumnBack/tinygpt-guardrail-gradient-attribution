@@ -6,8 +6,8 @@
 > 오판 하나를 원인까지 일곱 단계로 따라가는 인터랙티브 페이지 — 어떤 단어가, 몇 번째 층에서, 어떤 경로로, 왜 —
 > 코드 실행 결과의 실제 숫자로 보여 준다. 소스: [`docs/index.html`](docs/index.html), [`docs/en/index.html`](docs/en/index.html).
 
-> **공부 진행 중.** 해석 가능성(interpretability) 기법을 공부하면서 만들고 있는 저장소로, 아직 완성본이 아니다.
-> 실험·수치·코드는 공부가 진행되면서 바뀔 수 있다.
+> **해석 가능성(interpretability) 기법 개인 공부 저장소 (완료).**
+> README, 문서, 페이지의 모든 숫자는 이 저장소의 코드를 실행해 얻은 값이다.
 > 수식 노트: [`Interpretability math.pdf`](Interpretability%20math.pdf) (손으로 쓴 정리: hidden state 차이, gradient attribution, IG, attention).
 
 NumPy로 직접 구현한 GPT(`tinygpt.py`, 손으로 유도한 forward/backward)를 MCP 도구 선택기로 학습시키고,
