@@ -52,4 +52,4 @@ python diagnose.py --all
   edit both HTML files directly and keep them in sync; for new numbers, add an export script (e.g. `tools/build_page.py`).
 - Cases where the methods disagree (attention top-1 only 66%; all-agree 60%, 39% after augmentation)
   are the next thing to study; the multi-hop path explanation is still a hypothesis.
-- A typed math write-up is planned; for now the math is in `Interpretability math.pdf`.
+- The math is in `Interpretability math.pdf` (complete). ΔD_ℓ is the one formula added in code/docs that is not in the PDF.

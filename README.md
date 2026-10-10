@@ -9,7 +9,6 @@ English | [한국어](README.ko.md)
 > **Work in progress.** This is a personal study of interpretability methods, not a finished project.
 > Experiments, numbers and code may change as the study goes on.
 > Math notes: [`Interpretability math.pdf`](Interpretability%20math.pdf) (handwritten: hidden-state difference, gradient attribution, IG, attention).
-> A typed write-up will be added once the documentation is finished.
 
 A study project: train a from-scratch NumPy GPT (`tinygpt.py`, hand-derived forward/backward) as an
 MCP tool selector, then use interpretability methods to find **which input tokens made it pick that tool —

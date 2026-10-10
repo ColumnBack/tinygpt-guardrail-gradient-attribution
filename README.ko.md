@@ -9,7 +9,6 @@
 > **공부 진행 중.** 해석 가능성(interpretability) 기법을 공부하면서 만들고 있는 저장소로, 아직 완성본이 아니다.
 > 실험·수치·코드는 공부가 진행되면서 바뀔 수 있다.
 > 수식 노트: [`Interpretability math.pdf`](Interpretability%20math.pdf) (손으로 쓴 정리: hidden state 차이, gradient attribution, IG, attention).
-> 타이핑한 정리 문서는 문서 작업이 완료되면 추가할 예정이다.
 
 NumPy로 직접 구현한 GPT(`tinygpt.py`, 손으로 유도한 forward/backward)를 MCP 도구 선택기로 학습시키고,
 해석 가능성 기법으로 **어떤 입력 토큰이 그 도구를 고르게 만들었는지, 틀렸을 때는 어떤 토큰이 오판을 일으켰는지** 찾는 공부용 프로젝트.
